@@ -1,0 +1,12 @@
+name: BookShelfEditor
+version: '1.0-SNAPSHOT'
+main: org.bookshelfeditor.bookshelfeditor.BookShelfEditor
+
+api-version: '1.21'
+prefix: BookShelfEditor
+authors: [Roko K]
+description: Web-based Book & Container Editor
+website: http://localhost:8111
+
+depend: [NBTAPI]
+

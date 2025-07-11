@@ -1,0 +1,6 @@
+# BookShelfEditor Configuration
+
+# Set to true after the plugin performs its first-time scan of the world.
+# If you want to force a re-scan of the entire world, stop the server,
+# set this to false, and start the server again.
+initial-scan-complete: false
