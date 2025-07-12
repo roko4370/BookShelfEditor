@@ -11,6 +11,11 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.BookMeta;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.java.JavaPlugin;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
+import java.util.ArrayList;
+import java.util.concurrent.CompletableFuture;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -222,4 +227,140 @@ public class PlayerDataManager {
         var offline = Bukkit.getOfflinePlayer(playerUuid);
         return offline.hasPlayedBefore() ? offline.getName() : null;
     }
+
+    /**
+     * Edits a book in a player's inventory (online or offline), preserving type and virtual author.
+     * @param playerName The name of the player.
+     * @param slot The slot to edit.
+     * @param title The new title.
+     * @param author The new author.
+     * @param pages The new pages.
+     * @param inventoryType "INVENTORY" or "ENDERCHEST".
+     * @return A CompletableFuture that completes when the edit is done.
+     */
+    public CompletableFuture<Void> editBookInPlayerInventory(String playerName, int slot, String title, String author, List<String> pages, String inventoryType) {
+        CompletableFuture<Void> future = new CompletableFuture<>();
+
+        Player onlinePlayer = Bukkit.getPlayer(playerName);
+        if (onlinePlayer != null) {
+            // Online player: Edit directly on main thread
+            plugin.getServer().getScheduler().runTask(plugin, () -> {
+                try {
+                    org.bukkit.inventory.Inventory inv = "ENDERCHEST".equals(inventoryType) ? onlinePlayer.getEnderChest() : onlinePlayer.getInventory();
+                    ItemStack existingItem = inv.getItem(slot);
+                    if (existingItem == null || (existingItem.getType() != Material.WRITTEN_BOOK && existingItem.getType() != Material.WRITABLE_BOOK)) {
+                        future.completeExceptionally(new IllegalStateException("No book in slot " + slot));
+                        return;
+                    }
+
+                    Material bookType = existingItem.getType();
+                    ItemStack newBook = new ItemStack(bookType);
+                    BookMeta meta = (BookMeta) newBook.getItemMeta();
+                    if (bookType == Material.WRITABLE_BOOK) {
+                        // Virtual author for writable book
+                        meta.displayName(Component.text(title));
+                        List<Component> lore = new ArrayList<>();
+                        lore.add(Component.text("by " + author, NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false));
+                        lore.add(Component.text("Original", NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false));
+                        meta.lore(lore);
+                    } else {
+                        // Standard for written book
+                        meta.setTitle(title);
+                        meta.setAuthor(author);
+                    }
+                    meta.setPages(pages);
+                    newBook.setItemMeta(meta);
+
+                    inv.setItem(slot, newBook);
+                    onlinePlayer.updateInventory();
+                    if (plugin instanceof BookShelfEditor) {
+                        ((BookShelfEditor) plugin).broadcastPlayerBookUpdate(playerName, onlinePlayer.getUniqueId().toString());
+                    }
+                    future.complete(null);
+                } catch (Exception e) {
+                    future.completeExceptionally(e);
+                }
+            });
+        } else {
+            // Offline player: Use NBT async
+            plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
+                try {
+                    UUID playerUuid = getPlayerUuidByName(playerName);
+                    if (playerUuid == null) {
+                        future.completeExceptionally(new IllegalArgumentException("Player UUID not found."));
+                        return;
+                    }
+                    File playerDataFile = getPlayerDataFile(playerUuid);
+                    if (!playerDataFile.exists()) {
+                        future.completeExceptionally(new IllegalStateException("Player data file not found."));
+                        return;
+                    }
+
+                    ReadWriteNBT playerData = NBT.readFile(playerDataFile);
+                    ReadWriteNBTCompoundList inventory = "ENDERCHEST".equals(inventoryType) ? playerData.getCompoundList("EnderItems") : playerData.getCompoundList("Inventory");
+
+                    ReadWriteNBT targetItem = null;
+                    for (ReadWriteNBT item : inventory) {
+                        if (item.getByte("Slot") == slot) {
+                            String itemId = item.getString("id");
+                            if (itemId.equals("minecraft:written_book") || itemId.equals("minecraft:writable_book")) {
+                                targetItem = item;
+                                break;
+                            }
+                        }
+                    }
+                    if (targetItem == null) {
+                        future.completeExceptionally(new IllegalStateException("No book in slot " + slot));
+                        return;
+                    }
+
+                    String bookType = targetItem.getString("id").equals("minecraft:writable_book") ? "minecraft:writable_book" : "minecraft:written_book";
+                    ReadWriteNBT components = targetItem.getOrCreateCompound("components");
+
+                    if (bookType.equals("minecraft:writable_book")) {
+                        // Virtual author for writable
+                        ReadWriteNBT writableContent = components.getOrCreateCompound("minecraft:writable_book_content");
+                        // CHANGE: Replaced getOrCreateCompoundList with getCompoundList
+                        ReadWriteNBTCompoundList pagesList = writableContent.getCompoundList("pages");
+                        pagesList.clear();
+                        for (String page : pages) {
+                            ReadWriteNBT pageComp = pagesList.addCompound();
+                            pageComp.setString("raw", page);
+                        }
+                        // Virtual author via custom data (simulate lore/display)
+                        components.setString("minecraft:custom_name", "{\"text\":\"" + title + "\"}");
+                        // CHANGE: Replaced getOrCreateCompoundList with getCompoundList
+                        ReadWriteNBTCompoundList loreList = components.getCompoundList("minecraft:lore");
+                        loreList.clear();
+                        loreList.addCompound().setString("text", "{\"text\":\"by " + author + "\",\"color\":\"gray\",\"italic\":false}");
+                        loreList.addCompound().setString("text", "{\"text\":\"Original\",\"color\":\"gray\",\"italic\":false}");
+                    } else {
+                        // Standard for written
+                        ReadWriteNBT writtenContent = components.getOrCreateCompound("minecraft:written_book_content");
+                        writtenContent.setString("author", author);
+                        ReadWriteNBT titleComp = writtenContent.getOrCreateCompound("title");
+                        titleComp.setString("raw", title);
+                        // CHANGE: Replaced getOrCreateCompoundList with getCompoundList
+                        ReadWriteNBTCompoundList pagesList = writtenContent.getCompoundList("pages");
+                        pagesList.clear();
+                        for (String page : pages) {
+                            ReadWriteNBT pageComp = pagesList.addCompound();
+                            pageComp.setString("raw", page);
+                        }
+                    }
+
+                    // CHANGE: Swapped parameters to match NBT.writeFile(File, ReadWriteNBT) signature
+                    NBT.writeFile(playerDataFile, playerData);
+                    future.complete(null);
+                } catch (Exception e) {
+                    future.completeExceptionally(e);
+                }
+            });
+        }
+        return future;
+    }
+
+
+
+
 }

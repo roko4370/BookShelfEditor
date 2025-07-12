@@ -65,7 +65,6 @@
     <div class="tab-container">
         <div class="tab active" data-tab="players">Players</div>
         <div class="tab" data-tab="bookshelves">Bookshelves</div>
-        <div class="tab" data-tab="all-books">All Books</div>
     </div>
 
     <!-- Players Tab -->
@@ -101,20 +100,7 @@
         <div id="bookshelf-status">Loading...</div>
     </div>
 
-    <!-- All Books Tab -->
-    <div id="all-books-tab" class="tab-content">
-        <h2>All Books</h2>
-        <input type="text" id="all-books-search" class="search-box" placeholder="Search books by title, author, or player...">
-        <div class="table-container">
-            <table id="all-books-table">
-                <thead>
-                <tr><th>Player</th><th>Status</th><th>Title</th><th>Author</th><th>Location</th></tr>
-                </thead>
-                <tbody></tbody>
-            </table>
-        </div>
-        <div id="all-books-status">Loading...</div>
-    </div>
+
 </div>
 
 <div id="detail-panel" class="panel">
@@ -141,13 +127,9 @@
     const bookshelfTableBody = document.querySelector("#bookshelf-table tbody");
     const bookshelfStatus = document.querySelector("#bookshelf-status");
 
-    // All books functionality
-    const allBooksSearch = document.getElementById('all-books-search');
-    const allBooksTableBody = document.querySelector("#all-books-table tbody");
-    const allBooksStatus = document.querySelector("#all-books-status");
 
     let allPlayers = [];
-    let allBooks = [];
+
 
     // Tab functionality
     document.querySelectorAll('.tab').forEach(tab => {
@@ -160,7 +142,6 @@
             switch(tabName) {
                 case 'players': loadPlayers(); break;
                 case 'bookshelves': loadBookshelves(); break;
-                case 'all-books': loadAllBooks(); break;
             }
         });
     });
@@ -260,10 +241,10 @@
         row.classList.add('selected');
         currentSelectedRow = row;
         const inventoryType = document.querySelector('input[name="inventory-type"]:checked').value;
-        loadPlayerBooks(player.name, inventoryType);
+        loadPlayerBooks(player.name, inventoryType, player.uuid, player.online);
     }
 
-    async function loadPlayerBooks(playerName, inventoryType) {
+    async function loadPlayerBooks(playerName, inventoryType, playerUuid, isOnline) {
         detailHeader.textContent = `Loading ${playerName}'s ${inventoryType.toLowerCase()}...`;
         bookList.innerHTML = '<li>Loading books...</li>';
         try {
@@ -271,7 +252,7 @@
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
             const books = await response.json();
             detailHeader.textContent = `Books in ${playerName}'s ${inventoryType.charAt(0) + inventoryType.slice(1).toLowerCase()} (${books.length})`;
-            displayBooks(books); // Player books are not editable, so no location is passed
+            displayBooks(books, { playerName, inventoryType, playerUuid, isOnline }); // Pass player details to enable editing
         } catch (error) {
             detailHeader.textContent = `Error loading books for ${playerName}`;
             bookList.innerHTML = `<li>Error loading books: ${error.message}</li>`;
@@ -281,11 +262,10 @@
     async function handlePlayerBookUpdate(data) {
         if (currentSelectedRow && currentSelectedRow.dataset.playerName === data.playerName) {
             const inventoryType = document.querySelector('input[name="inventory-type"]:checked').value;
-            await loadPlayerBooks(data.playerName, inventoryType);
+            await loadPlayerBooks(data.playerName, inventoryType, currentSelectedRow.dataset.playerUuid);
         }
-        if (document.querySelector('.tab[data-tab="all-books"]').classList.contains('active')) {
-            await loadAllBooks();
-        }
+
+
     }
 
     playerSearch.addEventListener('input', debounce(() => {
@@ -299,8 +279,9 @@
         radio.addEventListener('change', () => {
             if (currentSelectedRow && currentSelectedRow.dataset.playerName) {
                 const playerName = currentSelectedRow.dataset.playerName;
+                const playerUuid = currentSelectedRow.dataset.playerUuid;
                 const inventoryType = document.querySelector('input[name="inventory-type"]:checked').value;
-                loadPlayerBooks(playerName, inventoryType);
+                loadPlayerBooks(playerName, inventoryType, playerUuid);
             }
         });
     });
@@ -390,48 +371,12 @@
         }
     }
 
-    // All books functionality
-    async function loadAllBooks() {
-        allBooksStatus.textContent = 'Loading all books...';
-        allBooksTableBody.innerHTML = '';
-        try {
-            const response = await fetch('/api/books/all');
-            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-            const books = await response.json();
-            allBooks = books;
-            displayAllBooks(books);
-            allBooksStatus.textContent = `Found ${books.length} book(s) across all players`;
-        } catch (error) {
-            allBooksStatus.textContent = `Error loading books: ${error.message}`;
-        }
-    }
 
-    function displayAllBooks(books) {
-        allBooksTableBody.innerHTML = '';
-        books.forEach(book => {
-            const row = allBooksTableBody.insertRow();
-            row.innerHTML = `<td>${book.playerName}</td><td><span class="online-indicator ${book.online ? 'online' : 'offline'}"></span>${book.online ? 'Online' : 'Offline'}</td><td>${book.title || 'Untitled'}</td><td>${book.author || 'Unknown'}</td><td>${book.inventoryType} Slot ${book.slot}</td>`;
-            row.addEventListener('click', () => {
-                if (currentSelectedRow) currentSelectedRow.classList.remove('selected');
-                row.classList.add('selected');
-                currentSelectedRow = row;
-                detailHeader.textContent = `"${book.title || 'Untitled'}" by ${book.author || 'Unknown'}`;
-                displayBooks([book]); // Not editable from this view
-            });
-        });
-    }
-
-    allBooksSearch.addEventListener('input', debounce(() => {
-        const searchTerm = allBooksSearch.value.toLowerCase();
-        const filteredBooks = allBooks.filter(book => book.playerName.toLowerCase().includes(searchTerm) || (book.title && book.title.toLowerCase().includes(searchTerm)) || (book.author && book.author.toLowerCase().includes(searchTerm)));
-        displayAllBooks(filteredBooks);
-        allBooksStatus.textContent = `Showing ${filteredBooks.length} of ${allBooks.length} books`;
-    }, 300));
 
 
     // *** NEW/MODIFIED BOOK DISPLAY AND EDITING LOGIC ***
 
-    function displayBooks(books, bookshelfLocation = null) {
+    function displayBooks(books, location = null) {
         bookList.innerHTML = '';
         if (books.length === 0) {
             bookList.innerHTML = '<li>No books found.</li>';
@@ -450,9 +395,19 @@
             const authorEl = bookDisplay.querySelector('em');
             const contentEl = bookDisplay.querySelector('.book-content');
 
-            titleEl.textContent = book.title || 'Untitled';
-            authorEl.textContent = book.author || 'Unknown';
+            titleEl.textContent = book.virtualTitle || book.title || 'Untitled';
+            authorEl.textContent = book.virtualAuthor || book.author || 'Unknown';
             contentEl.textContent = book.pages.join('\n\n');
+
+            // Detect and apply virtual title/author if available for Book and Quill
+            if (!book.title && book.virtualTitle) {
+                titleEl.textContent = book.virtualTitle;
+                titleEl.style.fontStyle = 'italic'; // Optional: Style to indicate virtual title
+            }
+            if (!book.author && book.virtualAuthor) {
+                authorEl.textContent = book.virtualAuthor;
+                authorEl.style.color = '#aaaaaa'; // Optional: Gray out virtual author for distinction
+            }
 
             titleEl.addEventListener('click', (e) => {
                 const content = e.target.closest('.book-display').querySelector('.book-content');
@@ -461,11 +416,16 @@
 
             li.appendChild(bookDisplay);
 
-            if (bookshelfLocation) {
+            // Add edit button if location indicates a bookshelf or player inventory
+            if (location) {
                 const editButton = document.createElement('button');
                 editButton.className = 'edit-btn';
                 editButton.textContent = 'Edit';
-                editButton.addEventListener('click', () => showEditForm(li, book, bookshelfLocation));
+                if (location.world) { // Bookshelf
+                    editButton.addEventListener('click', () => showEditForm(li, book, location, 'bookshelf'));
+                } else if (location.playerName) { // Player inventory
+                    editButton.addEventListener('click', () => showEditForm(li, book, location, 'player'));
+                }
                 li.appendChild(editButton);
             }
 
@@ -473,17 +433,17 @@
         });
     }
 
-    function showEditForm(li, book, location) {
+    function showEditForm(li, book, location, type) {
         const bookDisplay = li.querySelector('.book-display');
         const editButton = li.querySelector('.edit-btn');
         bookDisplay.style.display = 'none';
-        if(editButton) editButton.style.display = 'none';
+        if (editButton) editButton.style.display = 'none';
 
         const form = document.createElement('form');
         form.className = 'edit-form';
         form.innerHTML = `
-            <label>Title: <input type="text" name="title" value="${book.title || ''}"></label>
-            <label>Author: <input type="text" name="author" value="${book.author || ''}"></label>
+            <label>Title: <input type="text" name="title" value="${book.virtualTitle || book.title || ''}"></label>
+            <label>Author: <input type="text" name="author" value="${book.virtualAuthor || book.author || ''}"></label>
             <label>Pages (one page per line): <textarea name="pages">${book.pages.join('\n')}</textarea></label>
             <div class="edit-form-actions">
                 <span class="edit-status"></span>
@@ -500,16 +460,33 @@
             statusEl.textContent = 'Saving...';
 
             const formData = new FormData(form);
-            const payload = {
-                ...location,
-                slot: book.slot,
-                title: formData.get('title'),
-                author: formData.get('author'),
-                pages: formData.get('pages').split('\n')
-            };
+            const pages = formData.get('pages').split('\n').filter(page => page.trim() !== '');
+            let payload;
+            let endpoint;
+
+            if (type === 'bookshelf') {
+                payload = {
+                    ...location,
+                    slot: book.slot,
+                    title: formData.get('title'),
+                    author: formData.get('author'),
+                    pages: pages
+                };
+                endpoint = '/api/bookshelf/book/edit';
+            } else if (type === 'player') {
+                payload = {
+                    playerName: location.playerName,
+                    slot: book.slot,
+                    title: formData.get('title'),
+                    author: formData.get('author'),
+                    pages: pages,
+                    inventoryType: location.inventoryType
+                };
+                endpoint = '/api/player/book/edit';
+            }
 
             try {
-                const response = await fetch('/api/bookshelf/book/edit', {
+                const response = await fetch(endpoint, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
@@ -520,8 +497,15 @@
                     throw new Error(err.error || 'Failed to save book.');
                 }
 
-                // On success, reload the bookshelf books to show changes
-                await handleBookshelfRowClick(currentSelectedRow, true);
+                statusEl.textContent = 'Saved successfully!';
+                setTimeout(() => {
+                    // Reload the appropriate content after save
+                    if (type === 'bookshelf') {
+                        handleBookshelfRowClick(currentSelectedRow, true);
+                    } else if (type === 'player') {
+                        loadPlayerBooks(location.playerName, location.inventoryType, location.playerUuid, location.isOnline);
+                    }
+                }, 1000);
 
             } catch (error) {
                 statusEl.textContent = `Error: ${error.message}`;
@@ -532,7 +516,7 @@
         form.querySelector('.cancel-btn').addEventListener('click', () => {
             form.remove();
             bookDisplay.style.display = 'block';
-            if(editButton) editButton.style.display = 'block';
+            if (editButton) editButton.style.display = 'block';
         });
 
         li.appendChild(form);

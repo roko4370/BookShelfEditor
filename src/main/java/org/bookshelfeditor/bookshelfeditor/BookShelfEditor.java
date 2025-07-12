@@ -114,6 +114,7 @@ public final class BookShelfEditor extends JavaPlugin implements Listener {
         app.get("/api/bookshelves", this::handleGetAllBookshelves);
         app.get("/api/bookshelf", this::handleGetSingleBookshelf);
         app.post("/api/bookshelf/book/edit", this::handleEditBookshelfBook); // NEW: Endpoint for editing books
+        app.post("/api/player/book/edit", this::handleEditPlayerBook);
 
         // Player inventory endpoints
         app.get("/api/players", this::handleGetAllPlayers);
@@ -140,6 +141,49 @@ public final class BookShelfEditor extends JavaPlugin implements Listener {
     }
 
     // --- PLAYER EVENT HANDLERS ---
+
+    /**
+     * Handles POST requests to edit a book in a player's inventory.
+     */
+    private void handleEditPlayerBook(Context ctx) {
+        try {
+            // Deserialize the JSON request body into our PlayerBookEditRequest object
+            PlayerBookEditRequest request = gson.fromJson(ctx.body(), PlayerBookEditRequest.class);
+
+            // Basic validation of the request data
+            if (request.getPlayerName() == null || request.getSlot() < 0 || request.getSlot() > 40 || request.getInventoryType() == null) {
+                ctx.status(400).json(Map.of("error", "Invalid request body. Missing 'playerName', invalid 'slot', or missing 'inventoryType'."));
+                return;
+            }
+
+            // Call the async book editing method in the manager
+            CompletableFuture<Void> editFuture = playerDataManager.editBookInPlayerInventory(
+                    request.getPlayerName(),
+                    request.getSlot(),
+                    request.getTitle(),
+                    request.getAuthor(),
+                    request.getPages(),
+                    request.getInventoryType()
+            );
+
+            // Let Javalin handle the asynchronous operation result
+            ctx.future(() -> editFuture
+                    .thenRun(() -> ctx.status(200).json(Map.of("success", true, "message", "Player book edited successfully.")))
+                    .exceptionally(ex -> {
+                        Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                        getLogger().log(Level.WARNING, "Player book edit request failed: " + cause.getMessage(), cause);
+                        ctx.status(500).json(Map.of("error", cause.getMessage()));
+                        return null;
+                    })
+            );
+        } catch (JsonSyntaxException e) {
+            ctx.status(400).json(Map.of("error", "Invalid JSON format in request body."));
+        } catch (Exception e) {
+            getLogger().log(Level.SEVERE, "An unexpected error occurred in handleEditPlayerBook", e);
+            ctx.status(500).json(Map.of("error", "An internal server error occurred."));
+        }
+    }
+
 
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
