@@ -2,6 +2,7 @@ plugins {
     id 'java'
     id("xyz.jpenilla.run-paper") version "2.3.1"
     id "com.gradleup.shadow" version "8.3.0"
+
 }
 
 group = 'org.bookshelfeditor'
@@ -42,6 +43,7 @@ dependencies {
 // Add this entire block to your build.gradle file
 shadowJar {
     relocate 'io.javalin', 'org.bookshelfeditor.libs.javalin'
+    relocate 'com.comphenix.protocol', 'org.bookshelfeditor.libs.protocol'
 }
 
 tasks {

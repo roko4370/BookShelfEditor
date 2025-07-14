@@ -4,6 +4,7 @@ import de.tr7zw.nbtapi.NBT;
 import de.tr7zw.nbtapi.iface.ReadWriteNBT;
 import de.tr7zw.nbtapi.iface.ReadWriteNBTCompoundList;
 import org.bukkit.Bukkit;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
@@ -67,9 +68,32 @@ public class PlayerDataManager {
             if (item != null && (item.getType() == Material.WRITTEN_BOOK || item.getType() == Material.WRITABLE_BOOK)) {
                 ItemMeta rawMeta = item.getItemMeta();
                 if (rawMeta instanceof BookMeta meta) {
-                    String title = meta.hasTitle() ? meta.getTitle() : "Untitled";
-                    String author = meta.hasAuthor() ? meta.getAuthor() : "Unknown";
+                    String title = "";
+                    String author = "";
                     List<String> pages = meta.hasPages() ? meta.getPages() : List.of("(This book is empty)");
+
+                    if (item.getType() == Material.WRITABLE_BOOK) {
+                        // Virtual title from display name
+                        if (meta.hasDisplayName()) {
+                            title = PlainTextComponentSerializer.plainText().serialize(meta.displayName());
+                        }
+                        // Virtual author from lore
+                        if (meta.hasLore() && meta.lore() != null && !meta.lore().isEmpty()) {
+                            Component loreLine = meta.lore().get(0);
+                            String loreText = PlainTextComponentSerializer.plainText().serialize(loreLine);
+                            if (loreText.startsWith("by ")) {
+                                author = loreText.substring(3);
+                            }
+                        }
+                    } else {
+                        // Standard for written books
+                        if (meta.hasTitle()) {
+                            title = meta.getTitle();
+                        }
+                        if (meta.hasAuthor()) {
+                            author = meta.getAuthor();
+                        }
+                    }
 
                     books.add(new PlayerBookInfo(
                             i, title, author, pages,
@@ -79,6 +103,7 @@ public class PlayerDataManager {
                 }
             }
         }
+
 
         return books;
     }
@@ -107,44 +132,62 @@ public class PlayerDataManager {
                 }
 
                 int slot = item.getByte("Slot");
-                String title = "Untitled";
-                String author = "Unknown";
+                String title = "";
+                String author = "";
                 List<String> pages = new ArrayList<>();
 
                 if (item.hasTag("components")) {
                     ReadWriteNBT components = item.getCompound("components");
 
-                    if (components.hasTag("minecraft:written_book_content")) {
-                        ReadWriteNBT bookContent = components.getCompound("minecraft:written_book_content");
-                        if (bookContent.hasTag("title")) {
-                            ReadWriteNBT titleComp = bookContent.getCompound("title");
-                            if (titleComp.hasTag("raw")) {
-                                title = titleComp.getString("raw");
+                    if (itemId.equals("minecraft:writable_book")) {
+                        // Virtual title from custom name
+                        if (components.hasTag("minecraft:custom_name")) {
+                            title = components.getString("minecraft:custom_name").replaceAll("[\"{}]", "");
+                        }
+                        // Virtual author from lore
+                        if (components.hasTag("minecraft:lore") && components.getCompoundList("minecraft:lore").size() > 0) {
+                            String loreText = components.getCompoundList("minecraft:lore").get(0).getString("text").replaceAll("[\"{}]", "");
+                            if (loreText.startsWith("by ")) {
+                                author = loreText.substring(3);
                             }
                         }
-                        if (bookContent.hasTag("author")) {
-                            author = bookContent.getString("author");
-                        }
-                        if (bookContent.hasTag("pages")) {
-                            ReadWriteNBTCompoundList pagesList = bookContent.getCompoundList("pages");
-                            for (ReadWriteNBT page : pagesList) {
-                                if (page.hasTag("raw")) {
-                                    pages.add(page.getString("raw"));
+                        // Pages for writable
+                        if (components.hasTag("minecraft:writable_book_content")) {
+                            ReadWriteNBT bookContent = components.getCompound("minecraft:writable_book_content");
+                            if (bookContent.hasTag("pages")) {
+                                ReadWriteNBTCompoundList pagesList = bookContent.getCompoundList("pages");
+                                for (ReadWriteNBT page : pagesList) {
+                                    if (page.hasTag("raw")) {
+                                        pages.add(page.getString("raw"));
+                                    }
                                 }
                             }
                         }
-                    } else if (components.hasTag("minecraft:writable_book_content")) {
-                        ReadWriteNBT bookContent = components.getCompound("minecraft:writable_book_content");
-                        if (bookContent.hasTag("pages")) {
-                            ReadWriteNBTCompoundList pagesList = bookContent.getCompoundList("pages");
-                            for (ReadWriteNBT page : pagesList) {
-                                if (page.hasTag("raw")) {
-                                    pages.add(page.getString("raw"));
+                    } else {
+                        // Standard for written
+                        if (components.hasTag("minecraft:written_book_content")) {
+                            ReadWriteNBT bookContent = components.getCompound("minecraft:written_book_content");
+                            if (bookContent.hasTag("title")) {
+                                ReadWriteNBT titleComp = bookContent.getCompound("title");
+                                if (titleComp.hasTag("raw")) {
+                                    title = titleComp.getString("raw");
+                                }
+                            }
+                            if (bookContent.hasTag("author")) {
+                                author = bookContent.getString("author");
+                            }
+                            if (bookContent.hasTag("pages")) {
+                                ReadWriteNBTCompoundList pagesList = bookContent.getCompoundList("pages");
+                                for (ReadWriteNBT page : pagesList) {
+                                    if (page.hasTag("raw")) {
+                                        pages.add(page.getString("raw"));
+                                    }
                                 }
                             }
                         }
                     }
                 } else if (item.hasTag("tag")) {
+                    // Fallback for older NBT structures
                     ReadWriteNBT tag = item.getCompound("tag");
                     if (tag.hasTag("title")) {
                         title = tag.getString("title");
@@ -154,17 +197,16 @@ public class PlayerDataManager {
                     }
                     if (tag.hasTag("pages")) {
                         var pagesList = tag.getStringList("pages");
-                        // Fixed: iterate manually instead of using addAll()
                         for (String page : pagesList) {
                             pages.add(page);
                         }
                     }
                 }
 
-
                 if (pages.isEmpty()) {
                     pages.add("(This book is empty)");
                 }
+
 
                 books.add(new PlayerBookInfo(
                         slot, title, author, pages,
@@ -178,6 +220,8 @@ public class PlayerDataManager {
 
         return books;
     }
+
+
 
     private List<PlayerBookInfo> getBooksFromAllOfflinePlayers() {
         List<PlayerBookInfo> books = new ArrayList<>();
@@ -256,22 +300,39 @@ public class PlayerDataManager {
                     Material bookType = existingItem.getType();
                     ItemStack newBook = new ItemStack(bookType);
                     BookMeta meta = (BookMeta) newBook.getItemMeta();
+
+// Preserve existing if input is "Untitled" or blank
+                    String finalTitle = (title != null && !title.trim().isEmpty() && !title.trim().equalsIgnoreCase("Untitled")) ? title :
+                            (existingItem.getItemMeta() instanceof BookMeta existingMeta && existingMeta.hasTitle() ? existingMeta.getTitle() : null);
+
+                    String finalAuthor = (author != null && !author.trim().isEmpty() && !author.trim().equalsIgnoreCase("Untitled")) ? author :
+                            (existingItem.getItemMeta() instanceof BookMeta existingMeta && existingMeta.hasAuthor() ? existingMeta.getAuthor() : null);
+
                     if (bookType == Material.WRITABLE_BOOK) {
                         // Virtual author for writable book
-                        meta.displayName(Component.text(title));
-                        List<Component> lore = new ArrayList<>();
-                        lore.add(Component.text("by " + author, NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false));
-                        lore.add(Component.text("Original", NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false));
-                        meta.lore(lore);
+                        if (finalTitle != null) {
+                            meta.displayName(Component.text(finalTitle));
+                        }
+                        if (finalAuthor != null) {
+                            List<Component> lore = new ArrayList<>();
+                            lore.add(Component.text("by " + finalAuthor, NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false));
+                            lore.add(Component.text("Original", NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false));
+                            meta.lore(lore);
+                        }
                     } else {
                         // Standard for written book
-                        meta.setTitle(title);
-                        meta.setAuthor(author);
+                        if (finalTitle != null) {
+                            meta.setTitle(finalTitle);
+                        }
+                        if (finalAuthor != null) {
+                            meta.setAuthor(finalAuthor);
+                        }
                     }
+
                     meta.setPages(pages);
                     newBook.setItemMeta(meta);
-
                     inv.setItem(slot, newBook);
+
                     onlinePlayer.updateInventory();
                     if (plugin instanceof BookShelfEditor) {
                         ((BookShelfEditor) plugin).broadcastPlayerBookUpdate(playerName, onlinePlayer.getUniqueId().toString());
@@ -317,30 +378,53 @@ public class PlayerDataManager {
                     String bookType = targetItem.getString("id").equals("minecraft:writable_book") ? "minecraft:writable_book" : "minecraft:written_book";
                     ReadWriteNBT components = targetItem.getOrCreateCompound("components");
 
+// Get existing values from NBT
+                    String existingTitle = null;
+                    String existingAuthor = null;
+                    if (components.hasTag("minecraft:custom_name")) {
+                        existingTitle = components.getString("minecraft:custom_name").replaceAll("[\"{}]", "");
+                    } else if (components.hasTag("minecraft:written_book_content") && components.getCompound("minecraft:written_book_content").hasTag("title")) {
+                        existingTitle = components.getCompound("minecraft:written_book_content").getCompound("title").getString("raw");
+                    }
+                    if (components.hasTag("minecraft:lore") && components.getCompoundList("minecraft:lore").size() > 0) {
+                        String loreText = components.getCompoundList("minecraft:lore").get(0).getString("text").replaceAll("[\"{}]", "");
+                        if (loreText.startsWith("by ")) {
+                            existingAuthor = loreText.substring(3);
+                        }
+                    } else if (components.hasTag("minecraft:written_book_content") && components.getCompound("minecraft:written_book_content").hasTag("author")) {
+                        existingAuthor = components.getCompound("minecraft:written_book_content").getString("author");
+                    }
+
+// Preserve if input is "Untitled" or blank
+                    String finalTitle = (title != null && !title.trim().isEmpty() && !title.trim().equalsIgnoreCase("Untitled")) ? title : existingTitle;
+                    String finalAuthor = (author != null && !author.trim().isEmpty() && !author.trim().equalsIgnoreCase("Untitled")) ? author : existingAuthor;
+
                     if (bookType.equals("minecraft:writable_book")) {
-                        // Virtual author for writable
                         ReadWriteNBT writableContent = components.getOrCreateCompound("minecraft:writable_book_content");
-                        // CHANGE: Replaced getOrCreateCompoundList with getCompoundList
                         ReadWriteNBTCompoundList pagesList = writableContent.getCompoundList("pages");
                         pagesList.clear();
                         for (String page : pages) {
                             ReadWriteNBT pageComp = pagesList.addCompound();
                             pageComp.setString("raw", page);
                         }
-                        // Virtual author via custom data (simulate lore/display)
-                        components.setString("minecraft:custom_name", "{\"text\":\"" + title + "\"}");
-                        // CHANGE: Replaced getOrCreateCompoundList with getCompoundList
-                        ReadWriteNBTCompoundList loreList = components.getCompoundList("minecraft:lore");
-                        loreList.clear();
-                        loreList.addCompound().setString("text", "{\"text\":\"by " + author + "\",\"color\":\"gray\",\"italic\":false}");
-                        loreList.addCompound().setString("text", "{\"text\":\"Original\",\"color\":\"gray\",\"italic\":false}");
+                        if (finalTitle != null) {
+                            components.setString("minecraft:custom_name", "{\"text\":\"" + finalTitle + "\"}");
+                        }
+                        if (finalAuthor != null) {
+                            ReadWriteNBTCompoundList loreList = components.getCompoundList("minecraft:lore");
+                            loreList.clear();
+                            loreList.addCompound().setString("text", "{\"text\":\"by " + finalAuthor + "\",\"color\":\"gray\",\"italic\":false}");
+                            loreList.addCompound().setString("text", "{\"text\":\"Original\",\"color\":\"gray\",\"italic\":false}");
+                        }
                     } else {
-                        // Standard for written
                         ReadWriteNBT writtenContent = components.getOrCreateCompound("minecraft:written_book_content");
-                        writtenContent.setString("author", author);
-                        ReadWriteNBT titleComp = writtenContent.getOrCreateCompound("title");
-                        titleComp.setString("raw", title);
-                        // CHANGE: Replaced getOrCreateCompoundList with getCompoundList
+                        if (finalAuthor != null) {
+                            writtenContent.setString("author", finalAuthor);
+                        }
+                        if (finalTitle != null) {
+                            ReadWriteNBT titleComp = writtenContent.getOrCreateCompound("title");
+                            titleComp.setString("raw", finalTitle);
+                        }
                         ReadWriteNBTCompoundList pagesList = writtenContent.getCompoundList("pages");
                         pagesList.clear();
                         for (String page : pages) {
@@ -349,7 +433,79 @@ public class PlayerDataManager {
                         }
                     }
 
-                    // CHANGE: Swapped parameters to match NBT.writeFile(File, ReadWriteNBT) signature
+                    NBT.writeFile(playerDataFile, playerData);
+
+                    future.complete(null);
+                } catch (Exception e) {
+                    future.completeExceptionally(e);
+                }
+            });
+        }
+        return future;
+    }
+
+
+    public CompletableFuture<Void> deleteBookInPlayerInventory(String playerName, int slot, String inventoryType) {
+        CompletableFuture<Void> future = new CompletableFuture<>();
+        Player onlinePlayer = Bukkit.getPlayer(playerName);
+        if (onlinePlayer != null) {
+            // Online player: Edit directly on main thread
+            plugin.getServer().getScheduler().runTask(plugin, () -> {
+                try {
+                    org.bukkit.inventory.Inventory inv = "ENDERCHEST".equals(inventoryType) ? onlinePlayer.getEnderChest() : onlinePlayer.getInventory();
+                    ItemStack existingItem = inv.getItem(slot);
+                    if (existingItem == null || (existingItem.getType() != Material.WRITTEN_BOOK && existingItem.getType() != Material.WRITABLE_BOOK)) {
+                        future.completeExceptionally(new IllegalStateException("No book in slot " + slot));
+                        return;
+                    }
+                    inv.setItem(slot, null); // Remove the book
+                    onlinePlayer.updateInventory();
+                    if (plugin instanceof BookShelfEditor) {
+                        ((BookShelfEditor) plugin).broadcastPlayerBookUpdate(playerName, onlinePlayer.getUniqueId().toString());
+                    }
+                    future.complete(null);
+                } catch (Exception e) {
+                    future.completeExceptionally(e);
+                }
+            });
+        } else {
+            // Offline player: Use NBT async
+            plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
+                try {
+                    UUID playerUuid = getPlayerUuidByName(playerName);
+                    if (playerUuid == null) {
+                        future.completeExceptionally(new IllegalArgumentException("Player UUID not found."));
+                        return;
+                    }
+                    File playerDataFile = getPlayerDataFile(playerUuid);
+                    if (!playerDataFile.exists()) {
+                        future.completeExceptionally(new IllegalStateException("Player data file not found."));
+                        return;
+                    }
+                    ReadWriteNBT playerData = NBT.readFile(playerDataFile);
+                    ReadWriteNBTCompoundList inventory = "ENDERCHEST".equals(inventoryType) ? playerData.getCompoundList("EnderItems") : playerData.getCompoundList("Inventory");
+
+                    // Find the index of the target item
+                    int indexToRemove = -1;
+                    for (int i = 0; i < inventory.size(); i++) {
+                        ReadWriteNBT item = inventory.get(i);
+                        if (item.getByte("Slot") == slot) {
+                            String itemId = item.getString("id");
+                            if (itemId.equals("minecraft:written_book") || itemId.equals("minecraft:writable_book")) {
+                                indexToRemove = i;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (indexToRemove == -1) {
+                        future.completeExceptionally(new IllegalStateException("No book in slot " + slot));
+                        return;
+                    }
+
+                    // Remove the item by index
+                    inventory.remove(indexToRemove);
+
                     NBT.writeFile(playerDataFile, playerData);
                     future.complete(null);
                 } catch (Exception e) {
@@ -357,6 +513,7 @@ public class PlayerDataManager {
                 }
             });
         }
+
         return future;
     }
 

@@ -53,6 +53,22 @@
         .cancel-btn { background-color: #6c757d; color: white; }
         .cancel-btn:hover { background-color: #5a6268; }
         .edit-status { font-size: 0.9em; color: #ffc107; }
+        .delete-btn {
+            position: absolute;
+            top: 10px;
+            right: 60px; /* Positioned left of the edit button */
+            padding: 4px 8px;
+            font-size: 12px;
+            background-color: #dc3545; /* Red for delete */
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .delete-btn:hover {
+            background-color: #c82333;
+        }
+
     </style>
 </head>
 <body>
@@ -385,7 +401,7 @@
 
         books.forEach(book => {
             const li = document.createElement('li');
-            li.dataset.slot = book.slot; // Store slot for editing
+            li.dataset.slot = book.slot; // Store slot for editing/deleting
 
             const bookDisplay = document.createElement('div');
             bookDisplay.className = 'book-display';
@@ -416,8 +432,9 @@
 
             li.appendChild(bookDisplay);
 
-            // Add edit button if location indicates a bookshelf or player inventory
+            // Add edit and delete buttons if location indicates a bookshelf or player inventory
             if (location) {
+                // Edit button
                 const editButton = document.createElement('button');
                 editButton.className = 'edit-btn';
                 editButton.textContent = 'Edit';
@@ -427,11 +444,23 @@
                     editButton.addEventListener('click', () => showEditForm(li, book, location, 'player'));
                 }
                 li.appendChild(editButton);
+
+                // Delete button
+                const deleteButton = document.createElement('button');
+                deleteButton.className = 'delete-btn';
+                deleteButton.textContent = '🗑️';
+                if (location.world) { // Bookshelf
+                    deleteButton.addEventListener('click', () => handleDelete(book.slot, location, 'bookshelf', li));
+                } else if (location.playerName) { // Player inventory
+                    deleteButton.addEventListener('click', () => handleDelete(book.slot, location, 'player', li));
+                }
+                li.appendChild(deleteButton);
             }
 
             bookList.appendChild(li);
         });
     }
+
 
     function showEditForm(li, book, location, type) {
         const bookDisplay = li.querySelector('.book-display');
@@ -521,6 +550,63 @@
 
         li.appendChild(form);
     }
+
+    async function handleDelete(slot, location, type, li) {
+        if (!confirm('Are you sure you want to delete this book? This action cannot be undone.')) {
+            return;
+        }
+
+        let endpoint = '';
+        let body = {};
+
+        if (type === 'bookshelf') {
+            endpoint = '/api/bookshelf/book/delete';
+            body = {
+                world: location.world,
+                x: parseInt(location.x),
+                y: parseInt(location.y),
+                z: parseInt(location.z),
+                slot: slot
+            };
+        } else if (type === 'player') {
+            endpoint = '/api/player/book/delete';
+            body = {
+                playerName: location.playerName,
+                slot: slot,
+                inventoryType: location.inventoryType
+            };
+        }
+
+        try {
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.error || 'Failed to delete book.');
+            }
+
+            // Remove the book item from the UI immediately
+            li.remove();
+
+            // Refresh the book list after a short delay to sync with server
+            setTimeout(() => {
+                if (type === 'bookshelf') {
+                    handleBookshelfRowClick(currentSelectedRow, true);
+                } else if (type === 'player') {
+                    loadPlayerBooks(location.playerName, location.inventoryType, location.playerUuid, location.isOnline);
+                }
+            }, 500);
+
+            alert('Book deleted successfully!');
+        } catch (error) {
+            alert(`Error deleting book: ${error.message}`);
+        }
+    }
+
 
 
     // Utility functions

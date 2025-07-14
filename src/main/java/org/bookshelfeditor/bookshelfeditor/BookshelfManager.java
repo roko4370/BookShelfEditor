@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import java.io.File;
 import java.io.IOException;
 import java.util.Collections;
@@ -32,6 +33,11 @@ import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
+import org.bukkit.entity.Player;
+import org.bukkit.block.data.BlockData;
+
+
+
 
 public class BookshelfManager {
 
@@ -228,28 +234,65 @@ public class BookshelfManager {
 
                     if (meta != null) {
                         // --- START OF MODIFICATION ---
+
                         if (bookType == Material.WRITABLE_BOOK) {
                             // Virtual Author System for Book and Quill
-                            meta.displayName(net.kyori.adventure.text.Component.text(title)); // Use Component for display name
 
-                            // Create gray, non-italic lore using Paper's Component API
-                            List<net.kyori.adventure.text.Component> lore = new ArrayList<>();
-                            lore.add(net.kyori.adventure.text.Component.text("by " + author, net.kyori.adventure.text.format.NamedTextColor.GRAY)
-                                    .decoration(net.kyori.adventure.text.format.TextDecoration.ITALIC, false));
-                            lore.add(net.kyori.adventure.text.Component.text("Original", net.kyori.adventure.text.format.NamedTextColor.GRAY)
-                                    .decoration(net.kyori.adventure.text.format.TextDecoration.ITALIC, false));
+                            // Set to input if provided and valid; otherwise, explicitly clear (set to null)
+                            String finalTitle = (title != null && !title.trim().isEmpty() && !title.trim().equalsIgnoreCase("Untitled")) ? title : null;
 
-                            meta.lore(lore);
+                            if (finalTitle != null) {
+                                meta.displayName(net.kyori.adventure.text.Component.text(finalTitle)); // Use Component for display name
+                            } else {
+                                meta.displayName(null); // Explicitly clear display name
+                            }
+
+                            // Set to input if provided and valid; otherwise, explicitly clear (set to null)
+                            String finalAuthor = (author != null && !author.trim().isEmpty() && !author.trim().equalsIgnoreCase("Untitled")) ? author : null;
+
+                            if (finalAuthor != null) {
+                                // Create gray, non-italic lore using Paper's Component API
+                                List<Component> lore = new ArrayList<>();
+                                lore.add(net.kyori.adventure.text.Component.text("by " + finalAuthor, net.kyori.adventure.text.format.NamedTextColor.GRAY)
+                                        .decoration(net.kyori.adventure.text.format.TextDecoration.ITALIC, false));
+                                lore.add(net.kyori.adventure.text.Component.text("Original", net.kyori.adventure.text.format.NamedTextColor.GRAY)
+                                        .decoration(net.kyori.adventure.text.format.TextDecoration.ITALIC, false));
+                                meta.lore(lore);
+                            } else {
+                                meta.lore(null); // Explicitly clear lore
+                            }
+
                             meta.setPages(pages);
                         } else {
                             // Standard system for Written Books
-                            meta.setTitle(title);
-                            meta.setAuthor(author);
+
+                            // Set to input if provided and valid; otherwise, explicitly clear (set to null)
+                            String finalTitle = (title != null && !title.trim().isEmpty() && !title.trim().equalsIgnoreCase("Untitled")) ? title : null;
+
+                            if (finalTitle != null) {
+                                meta.setTitle(finalTitle);
+                            } else {
+                                meta.setTitle(null); // Explicitly clear title
+                            }
+
+                            // Set to input if provided and valid; otherwise, explicitly clear (set to null)
+                            String finalAuthor = (author != null && !author.trim().isEmpty() && !author.trim().equalsIgnoreCase("Untitled")) ? author : null;
+
+                            if (finalAuthor != null) {
+                                meta.setAuthor(finalAuthor);
+                            } else {
+                                meta.setAuthor(null); // Explicitly clear author
+                            }
+
                             meta.setPages(pages);
                         }
+
                         // --- END OF MODIFICATION ---
+
                         newBook.setItemMeta(meta);
                     }
+
+
 
                     snapshotInventory.setItem(slot, newBook);
                     shelf.update(true, false);
@@ -275,6 +318,92 @@ public class BookshelfManager {
 
         return future;
     }
+
+    public CompletableFuture<Void> deleteBookInBookshelf(ChiseledBookshelfInfo location, int slot) {
+        CompletableFuture<Void> future = new CompletableFuture<>();
+        World world = Bukkit.getWorld(location.getWorld());
+        if (world == null) {
+            future.completeExceptionally(new IllegalArgumentException("World '" + location.getWorld() + "' not found."));
+            return future;
+        }
+
+        if (slot < 0 || slot > 5) {
+            future.completeExceptionally(new IllegalArgumentException("Slot must be between 0 and 5."));
+            return future;
+        }
+
+        int chunkX = location.getX() >> 4;
+        int chunkZ = location.getZ() >> 4;
+        world.getChunkAtAsync(chunkX, chunkZ, true).thenAccept(chunk -> {
+            plugin.getServer().getScheduler().runTask(plugin, () -> {
+                try {
+                    Block block = chunk.getBlock(location.getX() & 15, location.getY(), location.getZ() & 15);
+                    if (block.getType() != Material.CHISELED_BOOKSHELF) {
+                        future.completeExceptionally(new IllegalStateException("Block at location is not a chiseled bookshelf."));
+                        return;
+                    }
+
+                    // Step 1: Use /item command to replace the slot with air
+                    String command = String.format("item replace block %d %d %d container.%d with air",
+                            location.getX(), location.getY(), location.getZ(), slot);
+                    boolean success = Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command);
+                    if (!success) {
+                        future.completeExceptionally(new IllegalStateException("Failed to execute /item command."));
+                        return;
+                    }
+
+                    // Step 2: Reload block and shelf states to sync in-memory inventory
+                    block.getState().update(true, true); // Force reload with physics
+                    ChiseledBookshelf refreshedShelf = (ChiseledBookshelf) block.getState();
+                    org.bukkit.inventory.ChiseledBookshelfInventory refreshedInventory = refreshedShelf.getSnapshotInventory();
+
+                    // Verify and log the change
+                    if (refreshedInventory.getItem(slot) != null) {
+                        plugin.getLogger().warning("Slot " + slot + " not cleared after command at " + location + ". Forcing manual clear.");
+                        refreshedInventory.setItem(slot, null);
+                        refreshedShelf.update(true, true);
+                    } else {
+                        plugin.getLogger().info("Successfully cleared slot " + slot + " at " + location);
+                    }
+
+                    // Step 3: Force client sync for nearby players
+                    Location shelfLoc = block.getLocation();
+                    for (Player player : world.getNearbyPlayers(shelfLoc, 32)) {
+                        player.sendBlockChange(shelfLoc, block.getBlockData());
+                    }
+
+                    // Step 4: Fallback dummy toggle for extra visual sync
+                    int tempSlot = (slot + 1) % 6;
+                    if (refreshedInventory.getItem(tempSlot) == null) {
+                        ItemStack dummy = new ItemStack(Material.WRITABLE_BOOK);
+                        BookMeta meta = (BookMeta) dummy.getItemMeta();
+                        meta.setPages(List.of("Temp sync page"));
+                        dummy.setItemMeta(meta);
+                        refreshedInventory.setItem(tempSlot, dummy);
+                        refreshedShelf.update(true, true);
+                        refreshedInventory.setItem(tempSlot, null);
+                        refreshedShelf.update(true, true);
+                    }
+
+                    // Step 5: Broadcast final update if applicable
+                    if (plugin instanceof BookShelfEditor) {
+                        ((BookShelfEditor) plugin).broadcastBookshelfUpdate(block);
+                    }
+
+                    // Short delay to ensure sync before completing
+                    plugin.getServer().getScheduler().runTaskLater(plugin, () -> future.complete(null), 5L);
+                } catch (Exception e) {
+                    future.completeExceptionally(e);
+                }
+            });
+        }).exceptionally(ex -> {
+            future.completeExceptionally(ex);
+            return null;
+        });
+        return future;
+    }
+
+
 
     /**
      * Gracefully shutdown the save executor and ensure final save.

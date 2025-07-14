@@ -6,6 +6,7 @@ import org.bukkit.Material;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
+import net.kyori.adventure.text.Component;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
@@ -80,35 +81,46 @@ public class BookshelfListener implements Listener {
 
             // Check if it's a "virtual author" book by looking for our specific lore.
             if (previousMeta.hasLore()) {
-                List<net.kyori.adventure.text.Component> lore = previousMeta.lore();
-                if (lore != null && lore.size() == 2 && lore.get(1).toString().contains("Original")) {
+                List<Component> lore = previousMeta.lore();
+                if (lore != null && lore.size() == 2 && PlainTextComponentSerializer.plainText().serialize(lore.get(1)).contains("Original")) {
 
                     // --- START OF THE OVERRIDE LOGIC ---
 
                     // 1. Extract the virtual author's name from the first line of the old lore.
                     String virtualAuthor = null;
                     if (lore.get(0) != null) {
-                        // Use the PlainTextSerializer to safely get the string content from the Component.
                         String loreLine = PlainTextComponentSerializer.plainText().serialize(lore.get(0));
                         if (loreLine.startsWith("by ")) {
                             virtualAuthor = loreLine.substring(3); // Extracts the name after "by "
                         }
                     }
 
-                    // 2. Get the new metadata that the game is about to save.
-                    BookMeta newMeta = event.getNewBookMeta();
-
-                    // 3. If we successfully extracted a virtual author, OVERRIDE the author set by the game.
-                    if (virtualAuthor != null && !virtualAuthor.isBlank()) {
-                        newMeta.setAuthor(virtualAuthor);
-                        plugin.getLogger().info("Virtual book signed by " + player.getName() + ". Overriding author to '" + virtualAuthor + "'.");
+                    // 2. Extract the virtual title from the display name.
+                    String virtualTitle = null;
+                    if (previousMeta.displayName() != null) {
+                        virtualTitle = PlainTextComponentSerializer.plainText().serialize(previousMeta.displayName());
                     }
 
-                    // 4. IMPORTANT: Clean up the virtual metadata (custom name and lore) to make it a standard WRITTEN_BOOK.
-                    newMeta.displayName(null); // Remove the custom item name.
-                    newMeta.lore(null);        // Remove the virtual lore ("by..." and "Original").
+                    // 3. Get the new metadata that the game is about to save.
+                    BookMeta newMeta = event.getNewBookMeta();
 
-                    // 5. Apply our modified metadata back to the event.
+                    // 4. If we successfully extracted a virtual author, OVERRIDE the author set by the game.
+                    if (virtualAuthor != null && !virtualAuthor.isBlank()) {
+                        newMeta.setAuthor(virtualAuthor);
+                        plugin.getLogger().info("Virtual book signed by " + event.getPlayer().getName() + ". Overriding author to '" + virtualAuthor + "'.");
+                    }
+
+                    // 5. If we successfully extracted a virtual title, OVERRIDE the title set by the game.
+                    if (virtualTitle != null && !virtualTitle.isBlank()) {
+                        newMeta.setTitle(virtualTitle);
+                        plugin.getLogger().info("Virtual book signed by " + event.getPlayer().getName() + ". Overriding title to '" + virtualTitle + "'.");
+                    }
+
+                    // 6. IMPORTANT: Clean up the virtual metadata (custom name and lore) to make it a standard WRITTEN_BOOK.
+                    newMeta.displayName(null); // Remove the custom item name.
+                    newMeta.lore(null); // Remove the virtual lore ("by..." and "Original").
+
+                    // 7. Apply our modified metadata back to the event.
                     event.setNewBookMeta(newMeta);
 
                     // --- END OF THE OVERRIDE LOGIC ---
@@ -116,13 +128,14 @@ public class BookshelfListener implements Listener {
             }
         }
 
-        // This must run for ALL book edits (page edits, signing) to keep the web UI updated.
-        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
-            plugin.broadcastPlayerBookUpdate(player.getName(), player.getUniqueId().toString());
-        }, 5L);
-    }
+            // This must run for ALL book edits (page edits, signing) to keep the web UI updated.
+            plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+                plugin.broadcastPlayerBookUpdate(event.getPlayer().getName(), event.getPlayer().getUniqueId().toString());
+            }, 5L);
+        }
 
-    @EventHandler
+
+        @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
         if (event.getWhoClicked() instanceof Player player) {
             ItemStack currentItem = event.getCurrentItem();
