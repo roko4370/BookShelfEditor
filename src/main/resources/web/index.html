@@ -56,7 +56,7 @@
         .delete-btn {
             position: absolute;
             top: 10px;
-            right: 60px; /* Positioned left of the edit button */
+            right: 60px; /* Adjusted for lock button */
             padding: 4px 8px;
             font-size: 12px;
             background-color: #dc3545; /* Red for delete */
@@ -65,9 +65,32 @@
             border-radius: 4px;
             cursor: pointer;
         }
+
         .delete-btn:hover {
             background-color: #c82333;
         }
+        .lock-btn {
+            position: absolute;
+            top: 10px;
+            right: 100px; /* Positioned left of the delete button */
+            padding: 4px 8px;
+            font-size: 12px;
+            background-color: #ffc107; /* Yellow for lock/unlock */
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .lock-btn:hover {
+            background-color: #e0a800;
+        }
+        .lock-btn.locked {
+            background-color: #6f42c1; /* Purple when locked */
+        }
+        .lock-btn.locked:hover {
+            background-color: #5632a5;
+        }
+
 
     </style>
 </head>
@@ -401,7 +424,7 @@
 
         books.forEach(book => {
             const li = document.createElement('li');
-            li.dataset.slot = book.slot; // Store slot for editing/deleting
+            li.dataset.slot = book.slot;
 
             const bookDisplay = document.createElement('div');
             bookDisplay.className = 'book-display';
@@ -415,14 +438,13 @@
             authorEl.textContent = book.virtualAuthor || book.author || 'Unknown';
             contentEl.textContent = book.pages.join('\n\n');
 
-            // Detect and apply virtual title/author if available for Book and Quill
             if (!book.title && book.virtualTitle) {
                 titleEl.textContent = book.virtualTitle;
-                titleEl.style.fontStyle = 'italic'; // Optional: Style to indicate virtual title
+                titleEl.style.fontStyle = 'italic';
             }
             if (!book.author && book.virtualAuthor) {
                 authorEl.textContent = book.virtualAuthor;
-                authorEl.style.color = '#aaaaaa'; // Optional: Gray out virtual author for distinction
+                authorEl.style.color = '#aaaaaa';
             }
 
             titleEl.addEventListener('click', (e) => {
@@ -432,34 +454,48 @@
 
             li.appendChild(bookDisplay);
 
-            // Add edit and delete buttons if location indicates a bookshelf or player inventory
             if (location) {
+                let bookType;
+                if (location.world) {
+                    bookType = 'bookshelf';
+                } else if (location.playerName) {
+                    bookType = 'player';
+                } else {
+                    console.error('Invalid location type for book:', location);
+                    return;
+                }
+
                 // Edit button
                 const editButton = document.createElement('button');
                 editButton.className = 'edit-btn';
                 editButton.textContent = 'Edit';
-                if (location.world) { // Bookshelf
-                    editButton.addEventListener('click', () => showEditForm(li, book, location, 'bookshelf'));
-                } else if (location.playerName) { // Player inventory
-                    editButton.addEventListener('click', () => showEditForm(li, book, location, 'player'));
-                }
+                editButton.addEventListener('click', () => showEditForm(li, book, location, bookType));
                 li.appendChild(editButton);
 
                 // Delete button
                 const deleteButton = document.createElement('button');
                 deleteButton.className = 'delete-btn';
                 deleteButton.textContent = '🗑️';
-                if (location.world) { // Bookshelf
-                    deleteButton.addEventListener('click', () => handleDelete(book.slot, location, 'bookshelf', li));
-                } else if (location.playerName) { // Player inventory
-                    deleteButton.addEventListener('click', () => handleDelete(book.slot, location, 'player', li));
-                }
+                deleteButton.addEventListener('click', () => handleDelete(book.slot, location, bookType, li));
                 li.appendChild(deleteButton);
+
+                // Lock/Unlock button with improved type detection
+                console.log(`Book in slot ${book.slot} has type: ${book.type}`); // Debug log
+                const lockButton = document.createElement('button');
+                lockButton.className = 'lock-btn';
+                const isLocked = book.type === 'WRITTEN_BOOK' || book.type === 'minecraft:written_book';
+                lockButton.textContent = isLocked ? '🔓 Unlock' : '🔒 Lock';
+                if (isLocked) lockButton.classList.add('locked');
+                lockButton.addEventListener('click', () => handleLockUnlock(book.slot, location, bookType, li, isLocked));
+                li.appendChild(lockButton);
             }
 
             bookList.appendChild(li);
         });
     }
+
+
+
 
 
     function showEditForm(li, book, location, type) {
@@ -471,15 +507,16 @@
         const form = document.createElement('form');
         form.className = 'edit-form';
         form.innerHTML = `
-            <label>Title: <input type="text" name="title" value="${book.virtualTitle || book.title || ''}"></label>
-            <label>Author: <input type="text" name="author" value="${book.virtualAuthor || book.author || ''}"></label>
-            <label>Pages (one page per line): <textarea name="pages">${book.pages.join('\n')}</textarea></label>
+            <label>Title: <input type="text" name="title" value="${book.title || ''}"></label>
+            <label>Author: <input type="text" name="author" value="${book.author || ''}"></label>
+            <label>Pages (one page per line): <textarea name="pages">${book.pages.join('\n') || ''}</textarea></label>
             <div class="edit-form-actions">
                 <span class="edit-status"></span>
                 <button type="button" class="cancel-btn">Cancel</button>
                 <button type="submit" class="save-btn">Save</button>
             </div>
         `;
+
 
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -607,6 +644,62 @@
         }
     }
 
+
+    async function handleLockUnlock(slot, location, type, li, isLocked) {
+        if (!confirm(`Are you sure you want to ${isLocked ? 'unlock' : 'lock'} this book?`)) {
+            return;
+        }
+
+        let endpoint = '';
+        let body = {};
+
+        if (type === 'bookshelf') {
+            endpoint = isLocked ? '/api/bookshelf/book/unlock' : '/api/bookshelf/book/lock';
+            body = {
+                world: location.world,
+                x: parseInt(location.x),
+                y: parseInt(location.y),
+                z: parseInt(location.z),
+                slot: slot
+            };
+        } else if (type === 'player') {
+            endpoint = isLocked ? '/api/player/book/unlock' : '/api/player/book/lock';
+            body = {
+                playerName: location.playerName,
+                slot: slot,
+                inventoryType: location.inventoryType
+            };
+        } else {
+            console.error('Invalid type for lock/unlock:', type);
+            alert('Error: Invalid book location type.');
+            return;
+        }
+
+        try {
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.error || `Failed to ${isLocked ? 'unlock' : 'lock'} book.`);
+            }
+
+            // Force reload of the book list to detect new type
+            if (type === 'bookshelf') {
+                await loadBookshelfBooks(location); // Reload entire list
+            } else if (type === 'player') {
+                await loadPlayerBooks(location.playerName, location.inventoryType, location.playerUuid, location.isOnline);
+            }
+
+            alert(`Book ${isLocked ? 'unlocked' : 'locked'} successfully!`);
+        } catch (error) {
+            console.error('Lock/Unlock error:', error);
+            alert(`Error: ${error.message}`);
+        }
+    }
 
 
     // Utility functions

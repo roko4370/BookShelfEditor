@@ -11,9 +11,10 @@ public class PlayerBookInfo {
     private final String playerUuid;
     private final boolean isOnline;
     private final String inventoryType; // "INVENTORY", "ENDERCHEST"
+    private final String type; // NEW: "WRITABLE_BOOK" or "WRITTEN_BOOK"
 
     public PlayerBookInfo(int slot, String title, String author, List<String> pages,
-                          String playerName, String playerUuid, boolean isOnline, String inventoryType) {
+                          String playerName, String playerUuid, boolean isOnline, String inventoryType, String type) {
         this.slot = slot;
         this.title = title;
         this.author = author;
@@ -22,6 +23,7 @@ public class PlayerBookInfo {
         this.playerUuid = playerUuid;
         this.isOnline = isOnline;
         this.inventoryType = inventoryType;
+        this.type = type;
     }
 
     public int getSlot() { return slot; }
@@ -32,4 +34,5 @@ public class PlayerBookInfo {
     public String getPlayerUuid() { return playerUuid; }
     public boolean isOnline() { return isOnline; }
     public String getInventoryType() { return inventoryType; }
+    public String getType() { return type; } // NEW: Getter for type
 }

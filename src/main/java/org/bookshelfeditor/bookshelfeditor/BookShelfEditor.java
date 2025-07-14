@@ -119,11 +119,15 @@ public final class BookShelfEditor extends JavaPlugin implements Listener {
         app.post("/api/player/book/edit", this::handleEditPlayerBook);
         app.post("/api/bookshelf/book/delete", this::handleDeleteBookshelfBook);
         app.post("/api/player/book/delete", this::handleDeletePlayerBook);
+        app.post("/api/bookshelf/book/lock", this::handleLockBookshelfBook);
+        app.post("/api/bookshelf/book/unlock", this::handleUnlockBookshelfBook);
 
         // Player inventory endpoints
         app.get("/api/players", this::handleGetAllPlayers);
         app.get("/api/player/books", this::handleGetPlayerBooks);
         app.get("/api/books/all", this::handleGetAllBooks);
+        app.post("/api/player/book/lock", this::handleLockPlayerBook);
+        app.post("/api/player/book/unlock", this::handleUnlockPlayerBook);
 
         this.app.start(7070);
         getLogger().info("Web server is running on http://localhost:7070");
@@ -145,6 +149,120 @@ public final class BookShelfEditor extends JavaPlugin implements Listener {
     }
 
     // --- PLAYER EVENT HANDLERS ---
+
+    private void handleLockBookshelfBook(Context ctx) {
+        try {
+            BookEditRequest request = gson.fromJson(ctx.body(), BookEditRequest.class);
+            if (request.getWorld() == null || request.getSlot() < 0 || request.getSlot() > 5) {
+                ctx.status(400).json(Map.of("error", "Invalid request body. Missing 'world' or invalid 'slot'."));
+                return;
+            }
+            ChiseledBookshelfInfo location = new ChiseledBookshelfInfo(
+                    request.getWorld(), request.getX(), request.getY(), request.getZ()
+            );
+            CompletableFuture<Void> lockFuture = bookshelfManager.lockBookInBookshelf(location, request.getSlot());
+            ctx.future(() -> lockFuture
+                    .thenRun(() -> ctx.status(200).json(Map.of("success", true, "message", "Book locked successfully.")))
+                    .exceptionally(ex -> {
+                        Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                        getLogger().log(Level.WARNING, "Book lock request failed: " + cause.getMessage(), cause);
+                        ctx.status(500).json(Map.of("error", cause.getMessage()));
+                        return null;
+                    })
+            );
+        } catch (JsonSyntaxException e) {
+            ctx.status(400).json(Map.of("error", "Invalid JSON format in request body."));
+        } catch (Exception e) {
+            getLogger().log(Level.SEVERE, "An unexpected error occurred in handleLockBookshelfBook", e);
+            ctx.status(500).json(Map.of("error", "An internal server error occurred."));
+        }
+    }
+
+
+    private void handleUnlockBookshelfBook(Context ctx) {
+        try {
+            BookEditRequest request = gson.fromJson(ctx.body(), BookEditRequest.class);
+            if (request.getWorld() == null || request.getSlot() < 0 || request.getSlot() > 5) {
+                ctx.status(400).json(Map.of("error", "Invalid request body. Missing 'world' or invalid 'slot'."));
+                return;
+            }
+            ChiseledBookshelfInfo location = new ChiseledBookshelfInfo(
+                    request.getWorld(), request.getX(), request.getY(), request.getZ()
+            );
+            CompletableFuture<Void> unlockFuture = bookshelfManager.unlockBookInBookshelf(location, request.getSlot());
+            ctx.future(() -> unlockFuture
+                    .thenRun(() -> ctx.status(200).json(Map.of("success", true, "message", "Book unlocked successfully.")))
+                    .exceptionally(ex -> {
+                        Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                        getLogger().log(Level.WARNING, "Book unlock request failed: " + cause.getMessage(), cause);
+                        ctx.status(500).json(Map.of("error", cause.getMessage()));
+                        return null;
+                    })
+            );
+        } catch (JsonSyntaxException e) {
+            ctx.status(400).json(Map.of("error", "Invalid JSON format in request body."));
+        } catch (Exception e) {
+            getLogger().log(Level.SEVERE, "An unexpected error occurred in handleUnlockBookshelfBook", e);
+            ctx.status(500).json(Map.of("error", "An internal server error occurred."));
+        }
+    }
+
+    private void handleLockPlayerBook(Context ctx) {
+        try {
+            PlayerBookEditRequest request = gson.fromJson(ctx.body(), PlayerBookEditRequest.class);
+            if (request.getPlayerName() == null || request.getSlot() < 0 || request.getSlot() > 40 || request.getInventoryType() == null) {
+                ctx.status(400).json(Map.of("error", "Invalid request body. Missing 'playerName', invalid 'slot', or missing 'inventoryType'."));
+                return;
+            }
+            CompletableFuture<Void> lockFuture = playerDataManager.lockBookInPlayerInventory(
+                    request.getPlayerName(), request.getSlot(), request.getInventoryType()
+            );
+            ctx.future(() -> lockFuture
+                    .thenRun(() -> ctx.status(200).json(Map.of("success", true, "message", "Player book locked successfully.")))
+                    .exceptionally(ex -> {
+                        Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                        getLogger().log(Level.WARNING, "Player book lock request failed: " + cause.getMessage(), cause);
+                        ctx.status(500).json(Map.of("error", cause.getMessage()));
+                        return null;
+                    })
+            );
+        } catch (JsonSyntaxException e) {
+            ctx.status(400).json(Map.of("error", "Invalid JSON format in request body."));
+        } catch (Exception e) {
+            getLogger().log(Level.SEVERE, "An unexpected error occurred in handleLockPlayerBook", e);
+            ctx.status(500).json(Map.of("error", "An internal server error occurred."));
+        }
+    }
+
+    private void handleUnlockPlayerBook(Context ctx) {
+        try {
+            PlayerBookEditRequest request = gson.fromJson(ctx.body(), PlayerBookEditRequest.class);
+            if (request.getPlayerName() == null || request.getSlot() < 0 || request.getSlot() > 40 || request.getInventoryType() == null) {
+                ctx.status(400).json(Map.of("error", "Invalid request body. Missing 'playerName', invalid 'slot', or missing 'inventoryType'."));
+                return;
+            }
+            CompletableFuture<Void> unlockFuture = playerDataManager.unlockBookInPlayerInventory(
+                    request.getPlayerName(), request.getSlot(), request.getInventoryType()
+            );
+            ctx.future(() -> unlockFuture
+                    .thenRun(() -> ctx.status(200).json(Map.of("success", true, "message", "Player book unlocked successfully.")))
+                    .exceptionally(ex -> {
+                        Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                        getLogger().log(Level.WARNING, "Player book unlock request failed: " + cause.getMessage(), cause);
+                        ctx.status(500).json(Map.of("error", cause.getMessage()));
+                        return null;
+                    })
+            );
+        } catch (JsonSyntaxException e) {
+            ctx.status(400).json(Map.of("error", "Invalid JSON format in request body."));
+        } catch (Exception e) {
+            getLogger().log(Level.SEVERE, "An unexpected error occurred in handleUnlockPlayerBook", e);
+            ctx.status(500).json(Map.of("error", "An internal server error occurred."));
+        }
+    }
+
+
+
 
     /**
      * Handles POST requests to edit a book in a player's inventory.
@@ -387,42 +505,38 @@ public final class BookShelfEditor extends JavaPlugin implements Listener {
                     if (item != null && (item.getType() == Material.WRITTEN_BOOK || item.getType() == Material.WRITABLE_BOOK)) {
                         ItemMeta rawMeta = item.getItemMeta();
                         if (rawMeta instanceof BookMeta meta) {
-                            String title = "";
-                            String author = "";
-                            List<String> pages = meta.hasPages() ? meta.getPages() : List.of("(This book is empty)");
-
+                            String bookTitle = "";
+                            String bookAuthor = "";
+                            List<String> bookPages = meta.hasPages() ? meta.getPages() : List.of("(This book is empty)");
                             if (item.getType() == Material.WRITABLE_BOOK) {
-                                // Extract virtual title from display name
+                                // Virtual for writable
                                 if (meta.hasDisplayName()) {
-                                    title = PlainTextComponentSerializer.plainText().serialize(meta.displayName());
+                                    bookTitle = PlainTextComponentSerializer.plainText().serialize(meta.displayName());
                                 }
-                                // Extract virtual author from lore
                                 if (meta.hasLore() && meta.lore() != null && !meta.lore().isEmpty()) {
                                     Component loreLine = meta.lore().get(0);
                                     String loreText = PlainTextComponentSerializer.plainText().serialize(loreLine);
                                     if (loreText.startsWith("by ")) {
-                                        author = loreText.substring(3);
+                                        bookAuthor = loreText.substring(3);
                                     }
                                 }
                             } else {
-                                // Standard for written books
-                                if (meta.hasTitle()) {
-                                    title = meta.getTitle();
-                                }
-                                if (meta.hasAuthor()) {
-                                    author = meta.getAuthor();
-                                }
+                                // For signed books: Check for virtual metadata flag from lock
+                                boolean isPlaceholder = meta.hasCustomModelData() && meta.getCustomModelData() == 1;
+                                bookTitle = meta.hasTitle() ? (isPlaceholder && meta.getTitle().equalsIgnoreCase("Untitled") ? "" : meta.getTitle()) : "";
+                                bookAuthor = meta.hasAuthor() ? (isPlaceholder && meta.getAuthor().equalsIgnoreCase("Unknown") ? "" : meta.getAuthor()) : "";
                             }
-
-                            books.add(new BookInfo(i, title.isEmpty() ? "" : title, author.isEmpty() ? "" : author, pages));
+                            String bookType = item.getType().name();
+                            books.add(new BookInfo(i, bookTitle, bookAuthor, bookPages, bookType));
                         }
                     }
                 }
+                future.complete(gson.toJson(books));
 
-                    future.complete(gson.toJson(books));
             } catch (Exception e) {
                 future.completeExceptionally(e);
             }
+
         });
     }
 

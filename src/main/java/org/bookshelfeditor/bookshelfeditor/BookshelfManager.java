@@ -35,6 +35,9 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 import org.bukkit.entity.Player;
 import org.bukkit.block.data.BlockData;
+import org.bukkit.persistence.PersistentDataContainer;
+import org.bukkit.persistence.PersistentDataType;
+import org.bukkit.NamespacedKey;
 
 
 
@@ -195,21 +198,17 @@ public class BookshelfManager {
      */
     public CompletableFuture<Void> editBookInBookshelf(ChiseledBookshelfInfo location, int slot, String title, String author, List<String> pages) {
         CompletableFuture<Void> future = new CompletableFuture<>();
-
         World world = Bukkit.getWorld(location.getWorld());
         if (world == null) {
             future.completeExceptionally(new IllegalArgumentException("World '" + location.getWorld() + "' not found."));
             return future;
         }
-
         if (slot < 0 || slot > 5) {
             future.completeExceptionally(new IllegalArgumentException("Slot must be between 0 and 5."));
             return future;
         }
-
         int chunkX = location.getX() >> 4;
         int chunkZ = location.getZ() >> 4;
-
         world.getChunkAtAsync(chunkX, chunkZ, true).thenAccept(chunk -> {
             plugin.getServer().getScheduler().runTask(plugin, () -> {
                 try {
@@ -218,95 +217,52 @@ public class BookshelfManager {
                         future.completeExceptionally(new IllegalStateException("Block at location is not a chiseled bookshelf."));
                         return;
                     }
-
                     ChiseledBookshelf shelf = (ChiseledBookshelf) block.getState();
                     org.bukkit.inventory.ChiseledBookshelfInventory snapshotInventory = shelf.getSnapshotInventory();
-
-                    // Check the existing item to determine what kind of book to create.
                     ItemStack existingItem = snapshotInventory.getItem(slot);
-                    Material bookType = Material.WRITTEN_BOOK;
-                    if (existingItem != null && existingItem.getType() == Material.WRITABLE_BOOK) {
-                        bookType = Material.WRITABLE_BOOK;
-                    }
-
+                    Material bookType = (existingItem != null && existingItem.getType() == Material.WRITABLE_BOOK) ? Material.WRITABLE_BOOK : Material.WRITTEN_BOOK;
                     ItemStack newBook = new ItemStack(bookType);
                     BookMeta meta = (BookMeta) newBook.getItemMeta();
 
-                    if (meta != null) {
-                        // --- START OF MODIFICATION ---
-
-                        if (bookType == Material.WRITABLE_BOOK) {
-                            // Virtual Author System for Book and Quill
-
-                            // Set to input if provided and valid; otherwise, explicitly clear (set to null)
-                            String finalTitle = (title != null && !title.trim().isEmpty() && !title.trim().equalsIgnoreCase("Untitled")) ? title : null;
-
-                            if (finalTitle != null) {
-                                meta.displayName(net.kyori.adventure.text.Component.text(finalTitle)); // Use Component for display name
-                            } else {
-                                meta.displayName(null); // Explicitly clear display name
-                            }
-
-                            // Set to input if provided and valid; otherwise, explicitly clear (set to null)
-                            String finalAuthor = (author != null && !author.trim().isEmpty() && !author.trim().equalsIgnoreCase("Untitled")) ? author : null;
-
-                            if (finalAuthor != null) {
-                                // Create gray, non-italic lore using Paper's Component API
-                                List<Component> lore = new ArrayList<>();
-                                lore.add(net.kyori.adventure.text.Component.text("by " + finalAuthor, net.kyori.adventure.text.format.NamedTextColor.GRAY)
-                                        .decoration(net.kyori.adventure.text.format.TextDecoration.ITALIC, false));
-                                lore.add(net.kyori.adventure.text.Component.text("Original", net.kyori.adventure.text.format.NamedTextColor.GRAY)
-                                        .decoration(net.kyori.adventure.text.format.TextDecoration.ITALIC, false));
-                                meta.lore(lore);
-                            } else {
-                                meta.lore(null); // Explicitly clear lore
-                            }
-
-                            meta.setPages(pages);
+                    // Handle title: Preserve empty if no input; allow literal "Untitled"
+                    String finalTitle = (title != null && !title.trim().isEmpty()) ? title : "";
+                    if (bookType == Material.WRITTEN_BOOK) {
+                        meta.setTitle(finalTitle);
+                    } else {
+                        if (!finalTitle.isEmpty()) {
+                            meta.displayName(Component.text(finalTitle));
                         } else {
-                            // Standard system for Written Books
-
-                            // Set to input if provided and valid; otherwise, explicitly clear (set to null)
-                            String finalTitle = (title != null && !title.trim().isEmpty() && !title.trim().equalsIgnoreCase("Untitled")) ? title : null;
-
-                            if (finalTitle != null) {
-                                meta.setTitle(finalTitle);
-                            } else {
-                                meta.setTitle(null); // Explicitly clear title
-                            }
-
-                            // Set to input if provided and valid; otherwise, explicitly clear (set to null)
-                            String finalAuthor = (author != null && !author.trim().isEmpty() && !author.trim().equalsIgnoreCase("Untitled")) ? author : null;
-
-                            if (finalAuthor != null) {
-                                meta.setAuthor(finalAuthor);
-                            } else {
-                                meta.setAuthor(null); // Explicitly clear author
-                            }
-
-                            meta.setPages(pages);
+                            meta.displayName(null);
                         }
-
-                        // --- END OF MODIFICATION ---
-
-                        newBook.setItemMeta(meta);
                     }
 
+                    // Handle author: Preserve empty if no input; allow literal "Unknown"
+                    String finalAuthor = (author != null && !author.trim().isEmpty()) ? author : "";
+                    if (bookType == Material.WRITTEN_BOOK) {
+                        meta.setAuthor(finalAuthor);
+                    } else {
+                        if (!finalAuthor.isEmpty()) {
+                            List<Component> lore = new ArrayList<>();
+                            lore.add(Component.text("by " + finalAuthor, NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false));
+                            lore.add(Component.text("Original", NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false));
+                            meta.lore(lore);
+                        } else {
+                            meta.lore(null);
+                        }
+                    }
 
-
+                    meta.setPages(pages);
+                    newBook.setItemMeta(meta);
                     snapshotInventory.setItem(slot, newBook);
                     shelf.update(true, false);
-
-                    logger.info(String.format("Successfully edited book (type: %s) in slot %d at bookshelf in world '%s' at %d, %d, %d",
-                            bookType.name(), slot, location.getWorld(), location.getX(), location.getY(), location.getZ()));
-
+                    logger.info(String.format("Successfully edited book in slot %d at bookshelf in world '%s' at %d, %d, %d",
+                            slot, location.getWorld(), location.getX(), location.getY(), location.getZ()));
                     if (plugin instanceof BookShelfEditor) {
                         ((BookShelfEditor) plugin).broadcastBookshelfUpdate(block);
                     }
-
                     future.complete(null);
                 } catch (Exception e) {
-                    logger.log(Level.SEVERE, "Failed to edit book in bookshelf on main thread", e);
+                    logger.log(Level.SEVERE, "Failed to edit book in bookshelf", e);
                     future.completeExceptionally(e);
                 }
             });
@@ -315,9 +271,11 @@ public class BookshelfManager {
             future.completeExceptionally(ex);
             return null;
         });
-
         return future;
     }
+
+
+
 
     public CompletableFuture<Void> deleteBookInBookshelf(ChiseledBookshelfInfo location, int slot) {
         CompletableFuture<Void> future = new CompletableFuture<>();
@@ -402,6 +360,143 @@ public class BookshelfManager {
         });
         return future;
     }
+
+
+    public CompletableFuture<Void> lockBookInBookshelf(ChiseledBookshelfInfo location, int slot) {
+        CompletableFuture<Void> future = new CompletableFuture<>();
+        World world = Bukkit.getWorld(location.getWorld());
+        if (world == null) {
+            future.completeExceptionally(new IllegalArgumentException("World '" + location.getWorld() + "' not found."));
+            return future;
+        }
+        if (slot < 0 || slot > 5) {
+            future.completeExceptionally(new IllegalArgumentException("Slot must be between 0 and 5."));
+            return future;
+        }
+        int chunkX = location.getX() >> 4;
+        int chunkZ = location.getZ() >> 4;
+        world.getChunkAtAsync(chunkX, chunkZ, true).thenAccept(chunk -> {
+            plugin.getServer().getScheduler().runTask(plugin, () -> {
+                try {
+                    Block block = chunk.getBlock(location.getX() & 15, location.getY(), location.getZ() & 15);
+                    if (block.getType() != Material.CHISELED_BOOKSHELF) {
+                        future.completeExceptionally(new IllegalStateException("Block at location is not a chiseled bookshelf."));
+                        return;
+                    }
+                    ChiseledBookshelf shelf = (ChiseledBookshelf) block.getState();
+                    org.bukkit.inventory.ChiseledBookshelfInventory snapshotInventory = shelf.getSnapshotInventory();
+                    ItemStack existingItem = snapshotInventory.getItem(slot);
+                    if (existingItem == null || existingItem.getType() != Material.WRITABLE_BOOK) {
+                        future.completeExceptionally(new IllegalStateException("No writable book in slot " + slot + " to lock."));
+                        return;
+                    }
+                    BookMeta existingMeta = (BookMeta) existingItem.getItemMeta();
+                    String title = existingMeta.hasDisplayName() ? PlainTextComponentSerializer.plainText().serialize(existingMeta.displayName()) : "";
+                    String author = "";
+                    if (existingMeta.hasLore() && existingMeta.lore() != null && !existingMeta.lore().isEmpty()) {
+                        String loreText = PlainTextComponentSerializer.plainText().serialize(existingMeta.lore().get(0));
+                        if (loreText.startsWith("by ")) {
+                            author = loreText.substring(3);
+                        }
+                    }
+                    List<String> pages = existingMeta.hasPages() ? existingMeta.getPages() : new ArrayList<>();
+                    ItemStack newBook = new ItemStack(Material.WRITTEN_BOOK);
+                    BookMeta newMeta = (BookMeta) newBook.getItemMeta();
+                    newMeta.setTitle(title); // Preserve empty as empty
+                    newMeta.setAuthor(author); // Preserve empty as empty
+                    newMeta.setPages(pages);
+                    newMeta.setGeneration(BookMeta.Generation.ORIGINAL);
+                    newBook.setItemMeta(newMeta);
+                    snapshotInventory.setItem(slot, newBook);
+                    shelf.update(true, false);
+                    logger.info(String.format("Successfully locked book in slot %d at bookshelf in world '%s' at %d, %d, %d",
+                            slot, location.getWorld(), location.getX(), location.getY(), location.getZ()));
+                    if (plugin instanceof BookShelfEditor) {
+                        ((BookShelfEditor) plugin).broadcastBookshelfUpdate(block);
+                    }
+                    future.complete(null);
+                } catch (Exception e) {
+                    logger.log(Level.SEVERE, "Failed to lock book in bookshelf", e);
+                    future.completeExceptionally(e);
+                }
+            });
+        }).exceptionally(ex -> {
+            logger.log(Level.SEVERE, "Failed to load chunk for book lock", ex);
+            future.completeExceptionally(ex);
+            return null;
+        });
+        return future;
+    }
+
+
+
+
+    public CompletableFuture<Void> unlockBookInBookshelf(ChiseledBookshelfInfo location, int slot) {
+        CompletableFuture<Void> future = new CompletableFuture<>();
+        World world = Bukkit.getWorld(location.getWorld());
+        if (world == null) {
+            future.completeExceptionally(new IllegalArgumentException("World '" + location.getWorld() + "' not found."));
+            return future;
+        }
+        if (slot < 0 || slot > 5) {
+            future.completeExceptionally(new IllegalArgumentException("Slot must be between 0 and 5."));
+            return future;
+        }
+        int chunkX = location.getX() >> 4;
+        int chunkZ = location.getZ() >> 4;
+        world.getChunkAtAsync(chunkX, chunkZ, true).thenAccept(chunk -> {
+            plugin.getServer().getScheduler().runTask(plugin, () -> {
+                try {
+                    Block block = chunk.getBlock(location.getX() & 15, location.getY(), location.getZ() & 15);
+                    if (block.getType() != Material.CHISELED_BOOKSHELF) {
+                        future.completeExceptionally(new IllegalStateException("Block at location is not a chiseled bookshelf."));
+                        return;
+                    }
+                    ChiseledBookshelf shelf = (ChiseledBookshelf) block.getState();
+                    org.bukkit.inventory.ChiseledBookshelfInventory snapshotInventory = shelf.getSnapshotInventory();
+                    ItemStack existingItem = snapshotInventory.getItem(slot);
+                    if (existingItem == null || existingItem.getType() != Material.WRITTEN_BOOK) {
+                        future.completeExceptionally(new IllegalStateException("No written book in slot " + slot + " to unlock."));
+                        return;
+                    }
+                    BookMeta existingMeta = (BookMeta) existingItem.getItemMeta();
+                    String title = existingMeta.hasTitle() ? existingMeta.getTitle() : "";
+                    String author = existingMeta.hasAuthor() ? existingMeta.getAuthor() : "";
+                    List<String> pages = existingMeta.hasPages() ? existingMeta.getPages() : new ArrayList<>();
+                    ItemStack newBook = new ItemStack(Material.WRITABLE_BOOK);
+                    BookMeta newMeta = (BookMeta) newBook.getItemMeta();
+                    if (!title.isEmpty()) {
+                        newMeta.displayName(Component.text(title));
+                    }
+                    if (!author.isEmpty()) {
+                        List<Component> lore = new ArrayList<>();
+                        lore.add(Component.text("by " + author, NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false));
+                        lore.add(Component.text("Original", NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false));
+                        newMeta.lore(lore);
+                    }
+                    newMeta.setPages(pages);
+                    newBook.setItemMeta(newMeta);
+                    snapshotInventory.setItem(slot, newBook);
+                    shelf.update(true, false);
+                    logger.info(String.format("Successfully unlocked book in slot %d at bookshelf in world '%s' at %d, %d, %d",
+                            slot, location.getWorld(), location.getX(), location.getY(), location.getZ()));
+                    if (plugin instanceof BookShelfEditor) {
+                        ((BookShelfEditor) plugin).broadcastBookshelfUpdate(block);
+                    }
+                    future.complete(null);
+                } catch (Exception e) {
+                    logger.log(Level.SEVERE, "Failed to unlock book in bookshelf", e);
+                    future.completeExceptionally(e);
+                }
+            });
+        }).exceptionally(ex -> {
+            logger.log(Level.SEVERE, "Failed to load chunk for book unlock", ex);
+            future.completeExceptionally(ex);
+            return null;
+        });
+        return future;
+    }
+
 
 
 
