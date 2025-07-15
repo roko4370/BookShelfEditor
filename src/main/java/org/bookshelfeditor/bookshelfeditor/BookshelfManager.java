@@ -275,6 +275,210 @@ public class BookshelfManager {
     }
 
 
+    /**
+     * Adds a book (writable by default) to a chiseled bookshelf.
+     * Uses Paper’s /item command so the client texture refreshes reliably [12].
+     *
+     * @param location  bookshelf co-ordinates
+     * @param slot      0-5 or -1 for the first empty slot
+     * @return future that completes when the book (and optional meta) is in place
+     */
+    public CompletableFuture<Void> addBookToBookshelf(
+            ChiseledBookshelfInfo location,
+            int slot,
+            String title,
+            String author,
+            List<String> pages) {
+
+        CompletableFuture<Void> future = new CompletableFuture<>();
+        World world = Bukkit.getWorld(location.getWorld());
+        if (world == null) {
+            future.completeExceptionally(new IllegalArgumentException("Unknown world"));
+            return future;
+        }
+
+        int cx = location.getX() >> 4, cz = location.getZ() >> 4;
+        world.getChunkAtAsync(cx, cz, true).thenAccept(chunk -> plugin.getServer().getScheduler().runTask(plugin, () -> {
+            try {
+                Block block = chunk.getBlock(location.getX() & 15, location.getY(), location.getZ() & 15);
+                if (block.getType() != Material.CHISELED_BOOKSHELF)
+                    throw new IllegalStateException("Target is not a chiseled bookshelf.");
+
+                ChiseledBookshelf shelf = (ChiseledBookshelf) block.getState();
+                org.bukkit.inventory.ChiseledBookshelfInventory inv = shelf.getSnapshotInventory();
+
+                int target = slot;
+                if (target < 0) {                       // find first empty
+                    target = -1;
+                    for (int i = 0; i < 6; i++)
+                        if (inv.getItem(i) == null) { target = i; break; }
+                }
+                if (target < 0 || target > 5)
+                    throw new IllegalStateException("No free slot in bookshelf.");
+
+                // 1. place an empty writable book via /item
+                String cmd = String.format(
+                        "item replace block %d %d %d container.%d with writable_book",
+                        location.getX(), location.getY(), location.getZ(), target);
+                if (!Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd))
+                    throw new IllegalStateException("Failed to execute /item command.");
+
+                // 2. optional metadata – reuse existing edit method for convenience
+                if ((title != null && !title.isBlank())
+                        || (author != null && !author.isBlank())
+                        || (pages  != null && !pages.isEmpty())) {
+
+                    editBookInBookshelf(location, target,
+                            title, author,
+                            pages != null ? pages : List.of());
+                }
+
+                // 3. broadcast
+                if (plugin instanceof BookShelfEditor bse)
+                    bse.broadcastBookshelfUpdate(block);
+
+                future.complete(null);
+            } catch (Exception ex) {
+                future.completeExceptionally(ex);
+            }
+        })).exceptionally(ex -> { future.completeExceptionally(ex); return null; });
+
+        return future;
+    }
+
+    /**
+     * Re-orders the six slots of a chiseled bookshelf in one go, using Paper’s
+     * `/item replace …` command so that client-side slot textures refresh 100 %
+     * reliably (the same trick used for add / delete).
+     *
+     * newOrder must contain the six *distinct* integers 0-5.
+     * Each element’s INDEX = destination slot, ELEMENT = source slot.
+     * Example →  [5,4,3,2,1,0]  ★ reverses the bookshelf.
+     *
+     * @param location  world & xyz of the shelf
+     * @param newOrder  6-element permutation of 0-5
+     * @return          future that completes when every slot is in place
+     */
+    /**
+     * Re-orders the six slots of a chiseled bookshelf.
+     * – Keeps texture updates reliable by using /item
+     * – Does NOT block the main thread (no .join()).
+     */
+    public CompletableFuture<Void> reorderBooksInBookshelf(
+            ChiseledBookshelfInfo location,
+            List<Integer> newOrder) {
+
+        CompletableFuture<Void> overall = new CompletableFuture<>();
+
+        /* ───- sanity checks (unchanged) ─── */
+        if (newOrder == null || newOrder.size() != 6) {
+            overall.completeExceptionally(
+                    new IllegalArgumentException("newOrder must have exactly 6 entries"));
+            return overall;
+        }
+        if (newOrder.stream().anyMatch(i -> i < 0 || i > 5)
+                || newOrder.stream().distinct().count() != 6) {
+            overall.completeExceptionally(
+                    new IllegalArgumentException("newOrder must be a permutation of 0-5"));
+            return overall;
+        }
+
+        World world = Bukkit.getWorld(location.getWorld());
+        if (world == null) {
+            overall.completeExceptionally(
+                    new IllegalArgumentException("World '" + location.getWorld() + "' not found"));
+            return overall;
+        }
+
+        /* ───- chunk load ─── */
+        int cx = location.getX() >> 4, cz = location.getZ() >> 4;
+        world.getChunkAtAsync(cx, cz, true).thenAccept(chunk ->
+                plugin.getServer().getScheduler().runTask(plugin, () -> {
+                    try {
+                        Block block = chunk.getBlock(location.getX() & 15,
+                                location.getY(),
+                                location.getZ() & 15);
+                        if (block.getType() != Material.CHISELED_BOOKSHELF)
+                            throw new IllegalStateException("Target block is not a chiseled bookshelf");
+
+                        ChiseledBookshelf shelf = (ChiseledBookshelf) block.getState();
+                        var inv = shelf.getSnapshotInventory();   // read-only is fine here
+
+                        /* snapshot & desired */
+                        ItemStack[] current  = new ItemStack[6];
+                        ItemStack[] desired  = new ItemStack[6];
+                        for (int i = 0; i < 6; i++) current[i] = inv.getItem(i);
+                        for (int dst = 0; dst < 6; dst++)
+                            desired[dst] = current[newOrder.get(dst)];
+
+                        /* /item replace (textures) */
+                        for (int slot = 0; slot < 6; slot++) {
+                            ItemStack it = desired[slot];
+                            String id = (it == null) ? "air"
+                                    : (it.getType() == Material.WRITABLE_BOOK ? "writable_book"
+                                    : "written_book");
+                            String cmd = String.format(
+                                    "item replace block %d %d %d container.%d with %s",
+                                    location.getX(), location.getY(), location.getZ(), slot, id);
+                            if (!Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd))
+                                throw new IllegalStateException("Failed /item command for slot " + slot);
+                        }
+
+                        /* re-apply meta WITHOUT blocking the thread */
+                        List<CompletableFuture<Void>> metaJobs = new ArrayList<>();
+                        for (int slot = 0; slot < 6; slot++) {
+                            ItemStack it = desired[slot];
+                            if (it == null) continue;
+                            BookMeta bm = (BookMeta) it.getItemMeta();
+
+                            String title  = bm.hasDisplayName()
+                                    ? PlainTextComponentSerializer.plainText()
+                                    .serialize(bm.displayName()) : null;
+                            String author = (it.getType() == Material.WRITABLE_BOOK)
+                                    ? extractVirtualAuthor(bm)
+                                    : (bm.hasAuthor() ? bm.getAuthor() : null);
+                            List<String> pages = bm.hasPages() ? bm.getPages() : List.of();
+
+                            if ((title != null && !title.isBlank())
+                                    || (author != null && !author.isBlank())
+                                    || !pages.isEmpty()) {
+                                metaJobs.add(
+                                        editBookInBookshelf(location, slot, title, author, pages)
+                                );
+                            }
+                        }
+
+                        /* when all metaJobs are done … */
+                        CompletableFuture
+                                .allOf(metaJobs.toArray(new CompletableFuture[0]))
+                                .whenComplete((v, ex) -> {
+                                    if (ex != null) {
+                                        overall.completeExceptionally(ex);
+                                        return;
+                                    }
+                                    if (plugin instanceof BookShelfEditor bse)
+                                        bse.broadcastBookshelfUpdate(block);
+                                    overall.complete(null);
+                                });
+
+                        /* quick exit – main thread keeps running */
+
+                    } catch (Exception e) {
+                        overall.completeExceptionally(e);
+                    }
+                })
+        ).exceptionally(ex -> { overall.completeExceptionally(ex); return null; });
+
+        return overall;
+    }
+
+
+    /* Small helper: pulls virtual author from writable-book lore */
+    private String extractVirtualAuthor(BookMeta meta) {
+        if (!meta.hasLore() || meta.lore() == null || meta.lore().isEmpty()) return null;
+        String line = PlainTextComponentSerializer.plainText().serialize(meta.lore().get(0));
+        return line.startsWith("by ") ? line.substring(3) : null;
+    }
 
 
     public CompletableFuture<Void> deleteBookInBookshelf(ChiseledBookshelfInfo location, int slot) {

@@ -741,6 +741,113 @@ public class PlayerDataManager {
     }
 
 
+    /**
+     * Adds a writable book to the first empty slot of the chosen inventory.
+     * Online → /item command; Offline → NBT file.
+     */
+    public CompletableFuture<Void> addBookToPlayerInventory(
+            String playerName,
+            String inventoryType,
+            String title,
+            String author,
+            List<String> pages) {
+
+        CompletableFuture<Void> future = new CompletableFuture<>();
+        Player online = Bukkit.getPlayerExact(playerName);
+
+        /* ---------------- ONLINE ---------------- */
+        if (online != null) {
+            plugin.getServer().getScheduler().runTask(plugin, () -> {
+                try {
+                    org.bukkit.inventory.Inventory inv =
+                            "ENDERCHEST".equals(inventoryType) ? online.getEnderChest()
+                                    : online.getInventory();
+
+                    int slot = inv.firstEmpty();
+                    if (slot < 0) {      // inventory full
+                        future.completeExceptionally(new IllegalStateException("Inventory full."));
+                        return;
+                    }
+
+                    // 1. place empty book via /item
+                    String cmd = String.format(
+                            "item replace entity %s inventory.%d with writable_book",
+                            online.getUniqueId(), slot);
+                    if (!Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd))
+                        throw new IllegalStateException("Failed to execute /item command.");
+
+                    // 2. optional meta via existing edit logic
+                    editBookInPlayerInventory(playerName, slot,
+                            title, author,
+                            pages != null ? pages : List.of(),
+                            inventoryType).join();
+
+                    if (plugin instanceof BookShelfEditor bse)
+                        bse.broadcastPlayerBookUpdate(playerName, online.getUniqueId().toString());
+
+                    future.complete(null);
+                } catch (Exception ex) { future.completeExceptionally(ex); }
+            });
+            return future;
+        }
+
+        /* ---------------- OFFLINE ---------------- */
+        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
+            try {
+                UUID uuid = getPlayerUuidByName(playerName);
+                if (uuid == null) throw new IllegalArgumentException("Unknown player.");
+
+                File dataFile = getPlayerDataFile(uuid);
+                ReadWriteNBT playerData = NBT.readFile(dataFile);
+                ReadWriteNBTCompoundList inv =
+                        "ENDERCHEST".equals(inventoryType)
+                                ? playerData.getCompoundList("EnderItems")
+                                : playerData.getCompoundList("Inventory");
+
+                // locate first empty slot index 0–40
+                boolean[] used = new boolean[41];
+                for (ReadWriteNBT tag : inv) used[tag.getByte("Slot")] = true;
+                int slot = -1;
+                for (int i = 0; i < used.length; i++)
+                    if (!used[i]) { slot = i; break; }
+                if (slot == -1)
+                    throw new IllegalStateException("Inventory full.");
+
+                // build brand-new NBT entry
+                ReadWriteNBT tag = NBT.createNBTObject();
+                tag.setString("id", "minecraft:writable_book");
+                tag.setByte("Slot", (byte) slot);
+                ReadWriteNBT components = tag.getOrCreateCompound("components");
+
+                // store pages, title, author if supplied
+                if (pages != null && !pages.isEmpty()) {
+                    ReadWriteNBT writable = components.getOrCreateCompound("minecraft:writable_book_content");
+                    ReadWriteNBTCompoundList pageList = writable.getCompoundList("pages");
+                    for (String p : pages) pageList.addCompound().setString("raw", p);
+                }
+                if (title != null && !title.isBlank())
+                    components.setString("minecraft:custom_name",
+                            gson.toJson(Map.of("text", title)));
+                if (author != null && !author.isBlank()) {
+                    ReadWriteNBTList lore = components.getStringList("minecraft:lore");
+                    lore.add(gson.toJson(Map.of("text", "by " + author,
+                            "color", "gray", "italic", false)));
+                    lore.add(gson.toJson(Map.of("text", "Original",
+                            "color", "gray", "italic", false)));
+                }
+
+                ReadWriteNBT newEntry = inv.addCompound();  // creates empty compound, returns it
+                newEntry.mergeCompound(tag);
+                NBT.writeFile(dataFile, playerData);
+
+                future.complete(null);
+            } catch (Exception ex) { future.completeExceptionally(ex); }
+        });
+        return future;
+    }
+
+
+
     public CompletableFuture<Void> deleteBookInPlayerInventory(String playerName, int slot, String inventoryType) {
         CompletableFuture<Void> future = new CompletableFuture<>();
         Player onlinePlayer = Bukkit.getPlayer(playerName);

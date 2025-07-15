@@ -90,6 +90,32 @@
         .lock-btn.locked:hover {
             background-color: #5632a5;
         }
+        /* green “+ Add Book” button */
+        .btn-success {
+            background-color: #28a745;
+            border: 1px solid #28a745;
+            color: #fff;
+            padding: 4px 10px;
+            font-size: 13px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .btn-success:hover {
+            background-color: #218838;
+        }
+        /* blue ↺ Reorder button */
+        .reorder-btn {
+            background-color: #17a2b8;   /* teal-blue */
+            border: 1px solid #17a2b8;
+            color: #fff;
+            padding: 4px 8px;
+            font-size: 12px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .reorder-btn:hover { background-color: #138496; }
+
+
 
 
     </style>
@@ -114,6 +140,7 @@
             <label><input type="radio" name="inventory-type" value="INVENTORY" checked> Inventory</label>
             <label><input type="radio" name="inventory-type" value="ENDERCHEST"> Ender Chest</label>
         </div>
+
         <div class="table-container">
             <table id="player-table">
                 <thead>
@@ -131,7 +158,7 @@
         <div class="table-container">
             <table id="bookshelf-table">
                 <thead>
-                <tr><th>World</th><th>X</th><th>Y</th><th>Z</th></tr>
+                <tr><th>World</th><th>X</th><th>Y</th><th>Z</th><th></th></tr>
                 </thead>
                 <tbody></tbody>
             </table>
@@ -144,6 +171,12 @@
 
 <div id="detail-panel" class="panel">
     <h2 id="detail-header">Select an item to view details</h2>
+    <!-- green + button for bookshelves -->
+    <button id="add-book-btn" class="btn-success" style="display:none;">＋ Add Book</button>
+
+    <!-- green + button shown when a player is selected -->
+    <button id="add-player-book-btn" class="btn-success" style="display:none;">＋ Add Book</button>
+
     <ul id="book-list"></ul>
 </div>
 
@@ -155,12 +188,14 @@
     let currentSelectedRow = null;
     let socket = null;
     let reconnectAttempts = 0;
+    let currentEmptyShelfSlots = [];
     const maxReconnectAttempts = 5;
 
     // Player functionality
     const playerSearch = document.getElementById('player-search');
     const playerTableBody = document.querySelector("#player-table tbody");
     const playerStatus = document.querySelector("#player-status");
+    const addPlayerBtn = document.getElementById('add-player-book-btn');
 
     // Bookshelf functionality
     const bookshelfTableBody = document.querySelector("#bookshelf-table tbody");
@@ -172,6 +207,7 @@
 
     // Tab functionality
     document.querySelectorAll('.tab').forEach(tab => {
+        addPlayerBtn.style.display = 'none';
         tab.addEventListener('click', () => {
             const tabName = tab.dataset.tab;
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -248,6 +284,21 @@
         }
     }
 
+    /* ---------- small JSON POST helper ----------- */
+    async function postJson(url, body) {
+        const r = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        if (!r.ok) {
+            const err = await r.json().catch(() => ({ error: r.statusText }));
+            throw new Error(err.error || 'Server error');
+        }
+        return r.json();
+    }
+
+
     // Player functionality
     async function loadPlayers() {
         playerStatus.textContent = 'Loading players...';
@@ -281,6 +332,9 @@
         currentSelectedRow = row;
         const inventoryType = document.querySelector('input[name="inventory-type"]:checked').value;
         loadPlayerBooks(player.name, inventoryType, player.uuid, player.online);
+        document.getElementById('add-book-btn').style.display = 'none';
+
+        addPlayerBtn.style.display = 'inline-block';
     }
 
     async function loadPlayerBooks(playerName, inventoryType, playerUuid, isOnline) {
@@ -342,13 +396,29 @@
     function addBookshelfTableRow(shelf) {
         const row = bookshelfTableBody.insertRow();
         row.id = `shelf-${shelf.world}-${shelf.x}-${shelf.y}-${shelf.z}`;
-        row.innerHTML = `<td>${shelf.world}</td><td>${shelf.x}</td><td>${shelf.y}</td><td>${shelf.z}</td>`;
         row.dataset.world = shelf.world;
         row.dataset.x = shelf.x;
         row.dataset.y = shelf.y;
         row.dataset.z = shelf.z;
+
+        // ── four coordinate cells ──
+        row.innerHTML =
+            `<td>${shelf.world}</td>` +
+            `<td>${shelf.x}</td>` +
+            `<td>${shelf.y}</td>` +
+            `<td>${shelf.z}</td>` +
+            `<td><button class="reorder-btn">↺ Reorder</button></td>`;
+
+        // make row selectable
         row.addEventListener('click', () => handleBookshelfRowClick(row));
+
+        // stop the row-select click when the button itself is pressed
+        row.querySelector('.reorder-btn').addEventListener('click', e => {
+            e.stopPropagation();                 // keep row from being selected
+            openReorderDialog(row.dataset);      // launch prompt → API call
+        });
     }
+
 
     function sortBookshelfTable() {
         const rows = Array.from(bookshelfTableBody.querySelectorAll('tr'));
@@ -372,7 +442,47 @@
         const { world, x, y, z } = row.dataset;
         detailHeader.textContent = `Books in Bookshelf [${world}, ${x}, ${y}, ${z}]`;
         await loadBookshelfBooks({ world, x, y, z });
+        document.getElementById('add-book-btn').style.display = 'inline-block';
+        addPlayerBtn.style.display = 'none';
     }
+
+    async function openReorderDialog(loc) {
+        const answer = prompt(
+            'Enter the new order for slots 0-5, comma-separated.\n' +
+            'Example “5,4,3,2,1,0” reverses the shelf.',
+            ''
+        );
+        if (answer === null) return;                       // user cancelled
+
+        const parts = answer.split(',').map(s => +s.trim());
+        const isValid = parts.length === 6 &&
+            parts.every(n => n >= 0 && n <= 5) &&
+            new Set(parts).size === 6;
+
+        if (!isValid) { alert('Invalid order – must be six distinct numbers 0-5.'); return; }
+
+        try {
+            await postJson('/api/bookshelf/reorder', {
+                world : loc.world,
+                x     : +loc.x,
+                y     : +loc.y,
+                z     : +loc.z,
+                newOrder : parts            // <- backend expects List<Integer>
+            });
+            // refresh the detail view if this shelf is currently open
+            if (currentSelectedRow &&
+                currentSelectedRow.dataset.world === loc.world &&
+                currentSelectedRow.dataset.x     === loc.x &&
+                currentSelectedRow.dataset.y     === loc.y &&
+                currentSelectedRow.dataset.z     === loc.z) {
+                handleBookshelfRowClick(currentSelectedRow, true);
+            }
+            alert('Bookshelf reordered successfully!');
+        } catch (err) {
+            alert('Reorder failed: ' + err.message);
+        }
+    }
+
 
     async function loadBookshelfBooks(location) {
         bookList.innerHTML = '<li>Loading books...</li>';
@@ -416,10 +526,17 @@
     // *** NEW/MODIFIED BOOK DISPLAY AND EDITING LOGIC ***
 
     function displayBooks(books, location = null) {
+        // ----- calculate empty slots (0–5) -----
+        const used = books.map(b => b.slot);          // slots that have a book
+        currentEmptyShelfSlots = [];
+        for (let i = 0; i < 6; i++) {
+            if (!used.includes(i)) currentEmptyShelfSlots.push(i);
+        }
+
+        /* --------- build the visual list --------- */
         bookList.innerHTML = '';
         if (books.length === 0) {
             bookList.innerHTML = '<li>No books found.</li>';
-            return;
         }
 
         books.forEach(book => {
@@ -724,6 +841,71 @@
         if (hours < 24) return `${hours}h ago`;
         return `${days}d ago`;
     }
+
+    /* ---------- “+ Add Book” for a bookshelf ---------- */
+    document.getElementById('add-book-btn').addEventListener('click', async () => {
+        if (!currentSelectedRow || !currentSelectedRow.dataset.world) return;   // no shelf selected
+
+        /* ---------- choose a target slot ---------- */
+        if (currentEmptyShelfSlots.length === 0) {
+            alert('This bookshelf is full.');
+            return;
+        }
+
+        let slot = currentEmptyShelfSlots[0];                 // auto-pick if only one free
+        if (currentEmptyShelfSlots.length > 1) {
+            const answer = prompt(
+                'Empty slots: ' + currentEmptyShelfSlots.join(', ') +
+                '\nWhich slot should receive the new book?', slot
+            );
+            if (answer === null) return;                      // cancelled
+            slot = parseInt(answer, 10);
+            if (!currentEmptyShelfSlots.includes(slot)) {
+                alert('That slot is not empty. Aborting.');
+                return;
+            }
+        }
+
+        /* ---------- optional metadata ---------- */
+        const title  = prompt('Title (optional):', '')        ?? '';
+        const author = prompt('Author (optional):', '')       ?? '';
+        const pagesRaw = prompt('Pages – put \\n between pages', '') ?? '';
+        const pages  = pagesRaw.split('\\n').filter(p => p.trim() !== '');
+
+        /* ---------- send request ---------- */
+        const loc = currentSelectedRow.dataset;               // world,x,y,z
+        try {
+            await postJson('/api/bookshelf/book/add', {
+                world: loc.world,
+                x: +loc.x, y: +loc.y, z: +loc.z,
+                slot,           // <-- specific empty slot
+                title, author, pages
+            });
+            handleBookshelfRowClick(currentSelectedRow, true); // refresh panel
+        } catch (e) {
+            alert('Add failed: ' + e.message);
+        }
+    });
+
+
+    /* ---------- “+ Add Book” for a player inventory ---------- */
+    document.getElementById('add-player-book-btn').addEventListener('click', async () => {
+        if (!currentSelectedRow || !currentSelectedRow.dataset.playerName) return; // no player selected
+        const playerName    = currentSelectedRow.dataset.playerName;
+        const inventoryType = document.querySelector('input[name="inventory-type"]:checked').value;
+        const title  = prompt('Title (optional):', '');
+        const author = prompt('Author (optional):', '');
+        const pages  = prompt('Pages: put \\n between pages', '').split('\\n').filter(p => p.trim() !== '');
+        try {
+            await postJson('/api/player/book/add', {
+                playerName, inventoryType,
+                title, author, pages
+            });
+            // refresh view
+            loadPlayerBooks(playerName, inventoryType, currentSelectedRow.dataset.playerUuid);
+        } catch (e) { alert('Add failed: ' + e.message); }
+    });
+
 
     // Initialize
     connectWebSocket();

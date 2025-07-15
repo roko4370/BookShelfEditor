@@ -121,6 +121,8 @@ public final class BookShelfEditor extends JavaPlugin implements Listener {
         app.post("/api/player/book/delete", this::handleDeletePlayerBook);
         app.post("/api/bookshelf/book/lock", this::handleLockBookshelfBook);
         app.post("/api/bookshelf/book/unlock", this::handleUnlockBookshelfBook);
+        app.post("/api/bookshelf/book/add", this::handleAddBookshelfBook);
+        app.post("/api/bookshelf/reorder", this::handleReorderBookshelf);   // NEW
 
         // Player inventory endpoints
         app.get("/api/players", this::handleGetAllPlayers);
@@ -128,6 +130,7 @@ public final class BookShelfEditor extends JavaPlugin implements Listener {
         app.get("/api/books/all", this::handleGetAllBooks);
         app.post("/api/player/book/lock", this::handleLockPlayerBook);
         app.post("/api/player/book/unlock", this::handleUnlockPlayerBook);
+        app.post("/api/player/book/add",    this::handleAddPlayerBook);
 
         this.app.start(7070);
         getLogger().info("Web server is running on http://localhost:7070");
@@ -206,6 +209,43 @@ public final class BookShelfEditor extends JavaPlugin implements Listener {
             ctx.status(500).json(Map.of("error", "An internal server error occurred."));
         }
     }
+
+    /* ------------------------------------------------------------------
+     * POST  /api/bookshelf/reorder
+     * Body → BookshelfReorderRequest
+     * ------------------------------------------------------------------ */
+    private void handleReorderBookshelf(Context ctx) {
+        try {
+            BookshelfReorderRequest req =
+                    gson.fromJson(ctx.body(), BookshelfReorderRequest.class);
+
+            // basic sanity checks
+            if (req.getWorld() == null ||
+                    req.getNewOrder() == null || req.getNewOrder().size() != 6) {
+                ctx.status(400).json(Map.of(
+                        "error", "Body must contain 'world', coords and a 6-element 'newOrder'."));
+                return;
+            }
+
+            ChiseledBookshelfInfo loc = new ChiseledBookshelfInfo(
+                    req.getWorld(), req.getX(), req.getY(), req.getZ());
+
+            CompletableFuture<Void> task =
+                    bookshelfManager.reorderBooksInBookshelf(loc, req.getNewOrder());
+
+            ctx.future(() -> task.thenRun(() ->
+                            ctx.json(Map.of("success", true)))
+                    .exceptionally(ex -> {
+                        Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                        ctx.status(500).json(Map.of("error", cause.getMessage()));
+                        return null;
+                    }));
+
+        } catch (Exception e) {         // JSON parse or unexpected
+            ctx.status(400).json(Map.of("error", "Invalid JSON: " + e.getMessage()));
+        }
+    }
+
 
     private void handleLockPlayerBook(Context ctx) {
         try {
@@ -305,6 +345,64 @@ public final class BookShelfEditor extends JavaPlugin implements Listener {
             ctx.status(500).json(Map.of("error", "An internal server error occurred."));
         }
     }
+
+    /* ------------------------------------------------------------------
+     * POST  /api/bookshelf/book/add
+     * Body → BookAddRequest
+     * ------------------------------------------------------------------ */
+    private void handleAddBookshelfBook(Context ctx) {
+        try {
+            BookAddRequest req = gson.fromJson(ctx.body(), BookAddRequest.class);
+            if (req.getWorld() == null) {
+                ctx.status(400).json(Map.of("error", "Missing 'world'."));
+                return;
+            }
+
+            ChiseledBookshelfInfo loc = new ChiseledBookshelfInfo(
+                    req.getWorld(), req.getX(), req.getY(), req.getZ());
+
+            CompletableFuture<Void> f = bookshelfManager.addBookToBookshelf(
+                    loc, req.getSlot(),
+                    req.getTitle(), req.getAuthor(), req.getPages());
+
+            ctx.future(() -> f.thenRun(() -> ctx.json(Map.of("success", true)))
+                    .exceptionally(ex -> {
+                        ctx.status(500).json(Map.of("error", ex.getCause().getMessage()));
+                        return null;
+                    }));
+        } catch (JsonSyntaxException e) {
+            ctx.status(400).json(Map.of("error", "Invalid JSON."));
+        }
+    }
+
+    /* ------------------------------------------------------------------
+     * POST  /api/player/book/add
+     * Body → PlayerBookAddRequest
+     * ------------------------------------------------------------------ */
+    private void handleAddPlayerBook(Context ctx) {
+        try {
+            PlayerBookAddRequest req = gson.fromJson(ctx.body(), PlayerBookAddRequest.class);
+            if (req.getPlayerName() == null) {
+                ctx.status(400).json(Map.of("error", "Missing 'playerName'."));
+                return;
+            }
+
+            String invType = req.getInventoryType() != null ? req.getInventoryType() : "INVENTORY";
+
+            CompletableFuture<Void> f = playerDataManager.addBookToPlayerInventory(
+                    req.getPlayerName(), invType,
+                    req.getTitle(), req.getAuthor(), req.getPages());
+
+            ctx.future(() -> f.thenRun(() -> ctx.json(Map.of("success", true)))
+                    .exceptionally(ex -> {
+                        ctx.status(500).json(Map.of("error", ex.getCause().getMessage()));
+                        return null;
+                    }));
+        } catch (JsonSyntaxException e) {
+            ctx.status(400).json(Map.of("error", "Invalid JSON."));
+        }
+    }
+
 
     private void handleDeleteBookshelfBook(Context ctx) {
         try {
