@@ -151,6 +151,11 @@ public final class BookShelfEditor extends JavaPlugin implements Listener {
         }
     }
 
+    public void sendUpdate(String type, Object payload) {
+        String json = gson.toJson(Map.of("type", type, "data", payload));
+        clients.forEach(c -> c.send(json));
+    }
+
     // --- PLAYER EVENT HANDLERS ---
 
     private void handleLockBookshelfBook(Context ctx) {
@@ -212,7 +217,7 @@ public final class BookShelfEditor extends JavaPlugin implements Listener {
 
     /* ------------------------------------------------------------------
      * POST  /api/bookshelf/reorder
-     * Body → BookshelfReorderRequest
+     * Body â†’ BookshelfReorderRequest
      * ------------------------------------------------------------------ */
     private void handleReorderBookshelf(Context ctx) {
         try {
@@ -348,7 +353,7 @@ public final class BookShelfEditor extends JavaPlugin implements Listener {
 
     /* ------------------------------------------------------------------
      * POST  /api/bookshelf/book/add
-     * Body → BookAddRequest
+     * Body â†’ BookAddRequest
      * ------------------------------------------------------------------ */
     private void handleAddBookshelfBook(Context ctx) {
         try {
@@ -377,7 +382,7 @@ public final class BookShelfEditor extends JavaPlugin implements Listener {
 
     /* ------------------------------------------------------------------
      * POST  /api/player/book/add
-     * Body → PlayerBookAddRequest
+     * Body â†’ PlayerBookAddRequest
      * ------------------------------------------------------------------ */
     private void handleAddPlayerBook(Context ctx) {
         try {

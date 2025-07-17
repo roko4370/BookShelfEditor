@@ -90,7 +90,7 @@
         .lock-btn.locked:hover {
             background-color: #5632a5;
         }
-        /* green “+ Add Book” button */
+        /* green â€œ+ Add Bookâ€ button */
         .btn-success {
             background-color: #28a745;
             border: 1px solid #28a745;
@@ -103,7 +103,7 @@
         .btn-success:hover {
             background-color: #218838;
         }
-        /* blue ↺ Reorder button */
+        /* blue â†º Reorder button */
         .reorder-btn {
             background-color: #17a2b8;   /* teal-blue */
             border: 1px solid #17a2b8;
@@ -114,6 +114,27 @@
             cursor: pointer;
         }
         .reorder-btn:hover { background-color: #138496; }
+        /* â”€â”€â”€â”€â”€ BOOK EDITOR OVERLAY â”€â”€â”€â”€â”€ */
+        .editor-overlay{
+            position:fixed; inset:0;
+            background:#000a;              /* translucent backdrop */
+            display:flex; align-items:center; justify-content:center;
+            z-index:9999;
+        }
+        .editor-window{
+            width:600px; max-width:95%;
+            background:#3c3f41; border:1px solid #555; border-radius:8px;
+            padding:20px; box-sizing:border-box; display:flex; flex-direction:column; gap:12px;
+        }
+        .editor-close{
+            position:absolute; top:8px; right:12px;
+            background:none; border:none; font-size:26px; color:#dcdcdc; cursor:pointer;
+        }
+        .page-controls{display:flex; gap:6px; align-items:center;}
+        .page-controls button{padding:2px 8px; cursor:pointer;}
+        .format-toolbar{display:flex; flex-wrap:wrap; gap:6px;}
+        .format-toolbar select,
+        .format-toolbar button{padding:4px 6px; cursor:pointer; font-size:13px;}
 
 
 
@@ -172,13 +193,73 @@
 <div id="detail-panel" class="panel">
     <h2 id="detail-header">Select an item to view details</h2>
     <!-- green + button for bookshelves -->
-    <button id="add-book-btn" class="btn-success" style="display:none;">＋ Add Book</button>
+    <button id="add-book-btn" class="btn-success" style="display:none;">ï¼‹ Add Book</button>
 
     <!-- green + button shown when a player is selected -->
-    <button id="add-player-book-btn" class="btn-success" style="display:none;">＋ Add Book</button>
+    <button id="add-player-book-btn" class="btn-success" style="display:none;">ï¼‹ Add Book</button>
 
     <ul id="book-list"></ul>
+    <!-- â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ BOOK EDITOR OVERLAY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+    <div id="book-editor-overlay" class="editor-overlay" style="display:none">
+        <div class="editor-window">
+            <button id="editor-close" class="editor-close">Ã—</button>
+            <h3 id="editor-header">Edit Book</h3>
+
+            <label>Title:
+                <input id="editor-title" type="text">
+            </label>
+
+            <label>Author:
+                <input id="editor-author" type="text">
+            </label>
+
+            <!-- page navigation -->
+            <div class="page-controls">
+                <button id="prev-page">Â«</button>
+                <span id="page-indicator">Page 1 / 1</span>
+                <button id="next-page">Â»</button>
+            </div>
+
+            <!-- page editor -->
+            <textarea id="editor-page" rows="10"></textarea>
+
+            <!-- Minecraft formatting toolbar -->
+            <div id="format-toolbar" class="format-toolbar">
+                <select id="color-picker">
+                    <option value="">Color â€¦</option>
+                    <option value="Â§0">Black (Â§0)</option>
+                    <option value="Â§1">Dark Blue (Â§1)</option>
+                    <option value="Â§2">Dark Green (Â§2)</option>
+                    <option value="Â§3">Dark Aqua (Â§3)</option>
+                    <option value="Â§4">Dark Red (Â§4)</option>
+                    <option value="Â§5">Dark Purple (Â§5)</option>
+                    <option value="Â§6">Gold (Â§6)</option>
+                    <option value="Â§7">Gray (Â§7)</option>
+                    <option value="Â§8">Dark Gray (Â§8)</option>
+                    <option value="Â§9">Blue (Â§9)</option>
+                    <option value="Â§a">Green (Â§a)</option>
+                    <option value="Â§b">Aqua (Â§b)</option>
+                    <option value="Â§c">Red (Â§c)</option>
+                    <option value="Â§d">Light Purple (Â§d)</option>
+                    <option value="Â§e">Yellow (Â§e)</option>
+                    <option value="Â§f">White (Â§f)</option>
+                </select>
+
+                <button data-code="Â§l">Bold</button>
+                <button data-code="Â§o">Italic</button>
+                <button data-code="Â§n">Underline</button>
+                <button data-code="Â§m">Strike</button>
+                <button data-code="Â§k">Obfusc.</button>
+                <button data-code="Â§r">Reset</button>
+            </div>
+
+            <div class="edit-form-actions">
+                <button id="editor-save" class="save-btn">Save</button>
+            </div>
+        </div>
+    </div>
 </div>
+
 
 <script>
     // Global variables
@@ -275,8 +356,10 @@
                 handleBookshelfUpdate(msg.data);
                 break;
             case 'player-status-updated':
+                onPlayerStatus(msg.data);
+                break;
             case 'player-list-updated':
-                loadPlayers(); // For simplicity, just reload players on any player update
+                renderPlayerTable(msg.data);  // For simplicity, just reload players on any player update
                 break;
             case 'player-book-updated':
                 handlePlayerBookUpdate(msg.data);
@@ -401,13 +484,13 @@
         row.dataset.y = shelf.y;
         row.dataset.z = shelf.z;
 
-        // ── four coordinate cells ──
+        // â”€â”€ four coordinate cells â”€â”€
         row.innerHTML =
             `<td>${shelf.world}</td>` +
             `<td>${shelf.x}</td>` +
             `<td>${shelf.y}</td>` +
             `<td>${shelf.z}</td>` +
-            `<td><button class="reorder-btn">↺ Reorder</button></td>`;
+            `<td><button class="reorder-btn">â†º Reorder</button></td>`;
 
         // make row selectable
         row.addEventListener('click', () => handleBookshelfRowClick(row));
@@ -415,7 +498,7 @@
         // stop the row-select click when the button itself is pressed
         row.querySelector('.reorder-btn').addEventListener('click', e => {
             e.stopPropagation();                 // keep row from being selected
-            openReorderDialog(row.dataset);      // launch prompt → API call
+            openReorderDialog(row.dataset);      // launch prompt â†’ API call
         });
     }
 
@@ -449,7 +532,7 @@
     async function openReorderDialog(loc) {
         const answer = prompt(
             'Enter the new order for slots 0-5, comma-separated.\n' +
-            'Example “5,4,3,2,1,0” reverses the shelf.',
+            'Example â€œ5,4,3,2,1,0â€ reverses the shelf.',
             ''
         );
         if (answer === null) return;                       // user cancelled
@@ -459,7 +542,7 @@
             parts.every(n => n >= 0 && n <= 5) &&
             new Set(parts).size === 6;
 
-        if (!isValid) { alert('Invalid order – must be six distinct numbers 0-5.'); return; }
+        if (!isValid) { alert('Invalid order â€“ must be six distinct numbers 0-5.'); return; }
 
         try {
             await postJson('/api/bookshelf/reorder', {
@@ -526,7 +609,7 @@
     // *** NEW/MODIFIED BOOK DISPLAY AND EDITING LOGIC ***
 
     function displayBooks(books, location = null) {
-        // ----- calculate empty slots (0–5) -----
+        // ----- calculate empty slots (0â€“5) -----
         const used = books.map(b => b.slot);          // slots that have a book
         currentEmptyShelfSlots = [];
         for (let i = 0; i < 6; i++) {
@@ -538,6 +621,12 @@
         if (books.length === 0) {
             bookList.innerHTML = '<li>No books found.</li>';
         }
+
+        /* â”€â”€ determine once whether we are editing a bookshelf or player inventory â”€â”€ */
+        const bookType = location
+            ? (location.world ? 'bookshelf' : 'player')
+            : null;
+
 
         books.forEach(book => {
             const li = document.createElement('li');
@@ -564,35 +653,17 @@
                 authorEl.style.color = '#aaaaaa';
             }
 
-            titleEl.addEventListener('click', (e) => {
-                const content = e.target.closest('.book-display').querySelector('.book-content');
-                content.style.display = content.style.display === 'block' ? 'none' : 'block';
-            });
+            li.addEventListener('click', () => openBookEditor(book, location, bookType));
+
 
             li.appendChild(bookDisplay);
 
             if (location) {
-                let bookType;
-                if (location.world) {
-                    bookType = 'bookshelf';
-                } else if (location.playerName) {
-                    bookType = 'player';
-                } else {
-                    console.error('Invalid location type for book:', location);
-                    return;
-                }
-
-                // Edit button
-                const editButton = document.createElement('button');
-                editButton.className = 'edit-btn';
-                editButton.textContent = 'Edit';
-                editButton.addEventListener('click', () => showEditForm(li, book, location, bookType));
-                li.appendChild(editButton);
 
                 // Delete button
                 const deleteButton = document.createElement('button');
                 deleteButton.className = 'delete-btn';
-                deleteButton.textContent = '🗑️';
+                deleteButton.textContent = 'ðŸ—‘ï¸';
                 deleteButton.addEventListener('click', () => handleDelete(book.slot, location, bookType, li));
                 li.appendChild(deleteButton);
 
@@ -601,7 +672,7 @@
                 const lockButton = document.createElement('button');
                 lockButton.className = 'lock-btn';
                 const isLocked = book.type === 'WRITTEN_BOOK' || book.type === 'minecraft:written_book';
-                lockButton.textContent = isLocked ? '🔓 Unlock' : '🔒 Lock';
+                lockButton.textContent = isLocked ? 'ðŸ”“ Unlock' : 'ðŸ”’ Lock';
                 if (isLocked) lockButton.classList.add('locked');
                 lockButton.addEventListener('click', () => handleLockUnlock(book.slot, location, bookType, li, isLocked));
                 li.appendChild(lockButton);
@@ -842,7 +913,7 @@
         return `${days}d ago`;
     }
 
-    /* ---------- “+ Add Book” for a bookshelf ---------- */
+    /* ---------- â€œ+ Add Bookâ€ for a bookshelf ---------- */
     document.getElementById('add-book-btn').addEventListener('click', async () => {
         if (!currentSelectedRow || !currentSelectedRow.dataset.world) return;   // no shelf selected
 
@@ -869,7 +940,7 @@
         /* ---------- optional metadata ---------- */
         const title  = prompt('Title (optional):', '')        ?? '';
         const author = prompt('Author (optional):', '')       ?? '';
-        const pagesRaw = prompt('Pages – put \\n between pages', '') ?? '';
+        const pagesRaw = prompt('Pages â€“ put \\n between pages', '') ?? '';
         const pages  = pagesRaw.split('\\n').filter(p => p.trim() !== '');
 
         /* ---------- send request ---------- */
@@ -888,7 +959,7 @@
     });
 
 
-    /* ---------- “+ Add Book” for a player inventory ---------- */
+    /* ---------- â€œ+ Add Bookâ€ for a player inventory ---------- */
     document.getElementById('add-player-book-btn').addEventListener('click', async () => {
         if (!currentSelectedRow || !currentSelectedRow.dataset.playerName) return; // no player selected
         const playerName    = currentSelectedRow.dataset.playerName;
@@ -906,11 +977,213 @@
         } catch (e) { alert('Add failed: ' + e.message); }
     });
 
+    /* â”€â”€â”€â”€â”€â”€â”€â”€â”€ BOOK EDITOR SCRIPT â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+    /* â”€â”€â”€â”€â”€â”€â”€â”€â”€ pixel-perfect line layout â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+    const LINE_PX   = 114;          // max width of one rendered line
+    const MAX_LINES = 14;           // lines visible on one page
+
+    /* advance widths from the wikiâ€™s â€œFontâ€ table â€“ Java 1.21.4 */
+    const MC_ADV = {
+        " ":4,"!":2,'"':4,"#":6,"$":6,"%":6,"&":6,"'":2,"(":4,")":4,
+        "*":4,"+":6,",":2,"-":6,".":2,"/":6,
+        "0":6,"1":6,"2":6,"3":6,"4":6,"5":6,"6":6,"7":6,"8":6,"9":6,
+        ":":2,";":2,"<":5,"=":6,">":5,"?":6,"@":7,
+        "A":6,"B":6,"C":6,"D":6,"E":6,"F":6,"G":6,"H":6,"I":4,"J":6,
+        "K":6,"L":6,"M":6,"N":6,"O":6,"P":6,"Q":6,"R":6,"S":6,"T":6,"U":6,"V":6,"W":6,"X":6,"Y":6,"Z":6,
+        "[":4,"\\":6,"]":4,"^":6,"_":6,"`":3,
+        "a":6,"b":6,"c":6,"d":6,"e":6,"f":5,"g":6,"h":6,"i":2,"j":6,"k":5,"l":3,"m":6,"n":6,"o":6,"p":6,"q":6,
+        "r":6,"s":6,"t":4,"u":6,"v":6,"w":6,"x":6,"y":6,"z":6,
+        "{":4,"|":2,"}":4,"~":7,"Â§":0,"\n":0
+    };
+
+    /* width of a glyph â€“ bold adds +1 px except on space */
+    function glyphPx(ch, bold){              // â† inclusive of tracking
+        const base = MC_ADV[ch] ?? 6;          // unknown glyphs = 6 px
+        return base + (bold && ch!==" " ? 1 : 0);
+    }
+
+    /* count how many lines the page would consume */
+    function pageLines(text){
+        let lines = 1, px = 0, bold = false;
+        let wrapPos = -1, wrapLine = 1, wrapPx = 0;
+
+        for(let i=0;i<text.length;i++){
+            let c = text[i];
+
+            /* Â§ formatting codes â€“ zero width, may toggle bold */
+            if(c==="Â§" && i+1<text.length){
+                const code = text[i+1].toLowerCase();
+                if(code==="l") bold = true;                       // bold on
+                else if(code==="r" || /[0-9a-fo]/.test(code)) bold = false;
+                i++; continue;
+            }
+
+            if(c==="\n"){ lines++; px=0; continue; }            // hard break
+
+            const w = glyphPx(c,bold);
+
+            /* remember last space for smart wrapping */
+            if(c===" "){ wrapPos=i; wrapLine=lines; wrapPx=px; }
+
+            if(px + w > LINE_PX){                              // needs wrap
+                if(wrapPos>=0 && wrapLine===lines){              // wrap at space
+                    i = wrapPos;           // â† rewind so next loop starts *after* the space
+                    wrapPos = -1;          // forget this space
+                    lines++; px = 0;       // fresh line, nothing rendered yet
+                }else{                   // word itself is wider than a line
+                    lines++; px = w;       // start new line with this glyph
+                }
+            }else{ px += w; }
+            if(lines > MAX_LINES) return lines;                // early abort
+        }
+        return lines;
+    }
+
+    const editor = {
+        overlay : document.getElementById('book-editor-overlay'),
+        close   : document.getElementById('editor-close'),
+        header  : document.getElementById('editor-header'),
+        title   : document.getElementById('editor-title'),
+        author  : document.getElementById('editor-author'),
+        pageBox : document.getElementById('editor-page'),
+        pageLbl : document.getElementById('page-indicator'),
+        prevBtn : document.getElementById('prev-page'),
+        nextBtn : document.getElementById('next-page'),
+        saveBtn : document.getElementById('editor-save'),
+        colorPick: document.getElementById('color-picker'),
+        toolbar : document.getElementById('format-toolbar'),
+        state   : {}      // slot, pages[], idx, location, type
+    };
+
+    /* open the overlay */
+    function openBookEditor(book, location, type){
+        editor.state = {
+            slot : book.slot,
+            pages: [...book.pages],              // clone
+            idx  : 0,
+            location, type
+        };
+        editor.header.textContent = `Edit slot ${book.slot}`;
+        editor.title.value  = book.title  ?? '';
+        editor.author.value = book.author ?? '';
+        showCurrentPage();
+        editor.overlay.style.display = 'flex';
+
+        editor.pageBox.dataset.prev = editor.pageBox.value;     // snapshot
+        enforceLimit();
+
+    }
+
+
+    function enforceLimit(){
+        const box = editor.pageBox;
+
+        if(pageLines(box.value) > MAX_LINES){
+            box.value = box.dataset.prev;                      // revert overflow
+            box.selectionStart = box.selectionEnd = box.value.length;
+        }else{
+            box.dataset.prev = box.value;                      // store good state
+        }
+
+        /* live counter (optional) */
+        const left = MAX_LINES - pageLines(box.value);
+        editor.pageLbl.textContent =
+            `Page ${editor.state.idx+1} â€“ ${left} lines left`;
+    }
+    editor.pageBox.addEventListener('input', enforceLimit);
+
+    /* helper â€“ load current page into textarea */
+    function showCurrentPage(){
+        const {pages, idx} = editor.state;
+        if(pages.length===0) pages.push('');
+        editor.pageBox.value = pages[idx];
+        editor.pageLbl.textContent = `Page ${idx+1} / ${pages.length}`;
+    }
+
+    /* page navigation */
+    editor.prevBtn.onclick = ()=>{ if(editor.state.idx>0){savePage(); editor.state.idx--; showCurrentPage();}};
+    editor.nextBtn.onclick = ()=>{
+        savePage();
+        if(editor.state.idx<editor.state.pages.length-1){
+            editor.state.idx++;
+        }else{
+            editor.state.pages.push('');
+            editor.state.idx = editor.state.pages.length-1;
+        }
+        showCurrentPage();
+    };
+
+    /* write back edited textarea before changing page / saving */
+    function savePage(){ editor.state.pages[editor.state.idx] = editor.pageBox.value; }
+
+    /* formatting buttons & colour picker */
+    editor.toolbar.querySelectorAll('button[data-code]').forEach(btn=>{
+        btn.onclick = ()=> insertCode(btn.dataset.code);
+    });
+    editor.colorPick.onchange = e=>{ if(e.target.value) insertCode(e.target.value); e.target.value=''; };
+
+    function insertCode(code){
+        const box = editor.pageBox;
+        const start = box.selectionStart, end = box.selectionEnd;
+        box.setRangeText(code, start, end, 'end');
+        box.focus();
+        enforceLimit();
+    }
+
+    /* close overlay */
+    editor.close.onclick = ()=> editor.overlay.style.display = 'none';
+
+    /* SAVE â†’ call the same backend endpoints already used by showEditForm */
+    editor.saveBtn.onclick = async ()=>{
+        savePage();
+        enforceLimit();
+        if (pageLines(editor.pageBox.value) > MAX_LINES) {
+            alert('This page is too long (exceeds 14 rendered lines). Shorten it before saving.');
+            return;
+        }
+        const bodyCommon = {
+            title : editor.title.value,
+            author: editor.author.value,
+            pages : editor.state.pages
+        };
+        let url, payload;
+        if(editor.state.type==='bookshelf'){
+            url = '/api/bookshelf/book/edit';
+            payload = { ...editor.state.location, slot: editor.state.slot, ...bodyCommon };
+        }else{
+            url = '/api/player/book/edit';
+            payload = {
+                playerName    : editor.state.location.playerName,
+                inventoryType : editor.state.location.inventoryType,
+                slot          : editor.state.slot,
+                ...bodyCommon
+            };
+        }
+        try{
+            await postJson(url, payload);
+            editor.overlay.style.display='none';
+            /* refresh whichever list is open */
+            if(editor.state.type==='bookshelf'){
+                handleBookshelfRowClick(currentSelectedRow,true);
+            }else{
+                loadPlayerBooks(
+                    editor.state.location.playerName,
+                    editor.state.location.inventoryType,
+                    editor.state.location.playerUuid,
+                    editor.state.location.isOnline
+                );
+            }
+        }catch(err){ alert('Save failed: '+err.message); }
+    };
+
+
+
 
     // Initialize
     connectWebSocket();
     loadPlayers(); // Start with players tab active
 </script>
+<script type="module" src="js/live.js"></script>
 
 </body>
 </html>

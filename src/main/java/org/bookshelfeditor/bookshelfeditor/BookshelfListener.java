@@ -128,14 +128,14 @@ public class BookshelfListener implements Listener {
             }
         }
 
-            // This must run for ALL book edits (page edits, signing) to keep the web UI updated.
-            plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
-                plugin.broadcastPlayerBookUpdate(event.getPlayer().getName(), event.getPlayer().getUniqueId().toString());
-            }, 5L);
-        }
+        // This must run for ALL book edits (page edits, signing) to keep the web UI updated.
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            plugin.broadcastPlayerBookUpdate(event.getPlayer().getName(), event.getPlayer().getUniqueId().toString());
+        }, 5L);
+    }
 
 
-        @EventHandler
+    @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
         if (event.getWhoClicked() instanceof Player player) {
             ItemStack currentItem = event.getCurrentItem();

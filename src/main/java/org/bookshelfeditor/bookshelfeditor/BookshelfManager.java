@@ -277,7 +277,7 @@ public class BookshelfManager {
 
     /**
      * Adds a book (writable by default) to a chiseled bookshelf.
-     * Uses Paper’s /item command so the client texture refreshes reliably [12].
+     * Uses Paperâ€™s /item command so the client texture refreshes reliably [12].
      *
      * @param location  bookshelf co-ordinates
      * @param slot      0-5 or -1 for the first empty slot
@@ -323,7 +323,7 @@ public class BookshelfManager {
                 if (!Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd))
                     throw new IllegalStateException("Failed to execute /item command.");
 
-                // 2. optional metadata – reuse existing edit method for convenience
+                // 2. optional metadata â€“ reuse existing edit method for convenience
                 if ((title != null && !title.isBlank())
                         || (author != null && !author.isBlank())
                         || (pages  != null && !pages.isEmpty())) {
@@ -347,13 +347,13 @@ public class BookshelfManager {
     }
 
     /**
-     * Re-orders the six slots of a chiseled bookshelf in one go, using Paper’s
-     * `/item replace …` command so that client-side slot textures refresh 100 %
+     * Re-orders the six slots of a chiseled bookshelf in one go, using Paperâ€™s
+     * `/item replace â€¦` command so that client-side slot textures refresh 100 %
      * reliably (the same trick used for add / delete).
      *
      * newOrder must contain the six *distinct* integers 0-5.
-     * Each element’s INDEX = destination slot, ELEMENT = source slot.
-     * Example →  [5,4,3,2,1,0]  ★ reverses the bookshelf.
+     * Each elementâ€™s INDEX = destination slot, ELEMENT = source slot.
+     * Example â†’  [5,4,3,2,1,0]  â˜… reverses the bookshelf.
      *
      * @param location  world & xyz of the shelf
      * @param newOrder  6-element permutation of 0-5
@@ -361,8 +361,8 @@ public class BookshelfManager {
      */
     /**
      * Re-orders the six slots of a chiseled bookshelf.
-     * – Keeps texture updates reliable by using /item
-     * – Does NOT block the main thread (no .join()).
+     * â€“ Keeps texture updates reliable by using /item
+     * â€“ Does NOT block the main thread (no .join()).
      */
     public CompletableFuture<Void> reorderBooksInBookshelf(
             ChiseledBookshelfInfo location,
@@ -370,7 +370,7 @@ public class BookshelfManager {
 
         CompletableFuture<Void> overall = new CompletableFuture<>();
 
-        /* ───- sanity checks (unchanged) ─── */
+        /* â”€â”€â”€- sanity checks (unchanged) â”€â”€â”€ */
         if (newOrder == null || newOrder.size() != 6) {
             overall.completeExceptionally(
                     new IllegalArgumentException("newOrder must have exactly 6 entries"));
@@ -390,7 +390,7 @@ public class BookshelfManager {
             return overall;
         }
 
-        /* ───- chunk load ─── */
+        /* â”€â”€â”€- chunk load â”€â”€â”€ */
         int cx = location.getX() >> 4, cz = location.getZ() >> 4;
         world.getChunkAtAsync(cx, cz, true).thenAccept(chunk ->
                 plugin.getServer().getScheduler().runTask(plugin, () -> {
@@ -448,7 +448,7 @@ public class BookshelfManager {
                             }
                         }
 
-                        /* when all metaJobs are done … */
+                        /* when all metaJobs are done â€¦ */
                         CompletableFuture
                                 .allOf(metaJobs.toArray(new CompletableFuture[0]))
                                 .whenComplete((v, ex) -> {
@@ -461,7 +461,7 @@ public class BookshelfManager {
                                     overall.complete(null);
                                 });
 
-                        /* quick exit – main thread keeps running */
+                        /* quick exit â€“ main thread keeps running */
 
                     } catch (Exception e) {
                         overall.completeExceptionally(e);

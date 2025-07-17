@@ -5,7 +5,7 @@ import java.util.List;
 
 /**
  * JSON body for POST /api/bookshelf/book/add
- * `slot == -1` → first empty slot.
+ * `slot == -1` â†’ first empty slot.
  */
 public class BookAddRequest {
     private String world;

@@ -291,11 +291,13 @@ public class PlayerDataManager {
         CompletableFuture<Void> future = new CompletableFuture<>();
 
         /* ------------------------------------------------- *
-         *  ONLINE PLAYERS – use the Bukkit API (unchanged)  *
+         *  ONLINE PLAYERS â€“ use the Bukkit API (unchanged)  *
          * ------------------------------------------------- */
         Player online = Bukkit.getPlayerExact(playerName);
         if (online != null) {
-            plugin.getServer().getScheduler().runTask(plugin, () -> {
+
+            // --- NEW: run immediately when we are already on the main thread ---
+            Runnable editTask = () -> {
                 try {
                     org.bukkit.inventory.Inventory inv = "ENDERCHEST".equals(inventoryType)
                             ? online.getEnderChest()
@@ -353,12 +355,21 @@ public class PlayerDataManager {
                 } catch (Exception ex) {
                     future.completeExceptionally(ex);
                 }
-            });
+
+            };  // ← end of editTask
+
+            if (plugin.getServer().isPrimaryThread()) {
+                editTask.run();                     // already on main thread
+            } else {
+                plugin.getServer().getScheduler()
+                        .runTask(plugin, editTask);   // hop to main thread
+            }
             return future;
         }
 
+
         /* ------------------------------------------------ *
-         *  OFFLINE PLAYERS – direct NBT file manipulation  *
+         *  OFFLINE PLAYERS â€“ direct NBT file manipulation  *
          * ------------------------------------------------ */
         plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
             try {
@@ -546,7 +557,7 @@ public class PlayerDataManager {
                         }
                     }
 
-                    // --- convert writable → written (offline) ---
+                    // --- convert writable â†’ written (offline) ---
                     targetItem.setString("id", "minecraft:written_book");
 
                     components.removeKey("minecraft:custom_name");
@@ -587,7 +598,7 @@ public class PlayerDataManager {
 
 
     // -----------------------------------------------------------------------------
-//  PlayerDataManager – completely fixed unlockBookInPlayerInventory(..)
+//  PlayerDataManager â€“ completely fixed unlockBookInPlayerInventory(..)
 // -----------------------------------------------------------------------------
     public CompletableFuture<Void> unlockBookInPlayerInventory(String playerName,
                                                                int slot,
@@ -743,7 +754,7 @@ public class PlayerDataManager {
 
     /**
      * Adds a writable book to the first empty slot of the chosen inventory.
-     * Online → /item command; Offline → NBT file.
+     * Online â†’ /item command; Offline â†’ NBT file.
      */
     public CompletableFuture<Void> addBookToPlayerInventory(
             String playerName,
@@ -759,34 +770,47 @@ public class PlayerDataManager {
         if (online != null) {
             plugin.getServer().getScheduler().runTask(plugin, () -> {
                 try {
+                    // Which inventory are we working with?
                     org.bukkit.inventory.Inventory inv =
-                            "ENDERCHEST".equals(inventoryType) ? online.getEnderChest()
+                            "ENDERCHEST".equals(inventoryType)
+                                    ? online.getEnderChest()
                                     : online.getInventory();
 
+                    // First free slot
                     int slot = inv.firstEmpty();
-                    if (slot < 0) {      // inventory full
-                        future.completeExceptionally(new IllegalStateException("Inventory full."));
+                    if (slot < 0) {                       // inventory full
+                        future.completeExceptionally(
+                                new IllegalStateException("Inventory full."));
                         return;
                     }
 
-                    // 1. place empty book via /item
-                    String cmd = String.format(
-                            "item replace entity %s inventory.%d with writable_book",
-                            online.getUniqueId(), slot);
-                    if (!Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd))
-                        throw new IllegalStateException("Failed to execute /item command.");
+                    /* ---------- create the book ---------- */
+                    boolean hasPages = pages != null && !pages.isEmpty();
+                    Material type   = hasPages ? Material.WRITTEN_BOOK
+                            : Material.WRITABLE_BOOK;
+                    ItemStack book  = new ItemStack(type, 1);
 
-                    // 2. optional meta via existing edit logic
-                    editBookInPlayerInventory(playerName, slot,
-                            title, author,
-                            pages != null ? pages : List.of(),
-                            inventoryType).join();
+                    BookMeta meta = (BookMeta) book.getItemMeta();
+                    if (title  != null && !title.isBlank())   meta.setTitle(title);
+                    if (author != null && !author.isBlank())  meta.setAuthor(author);
+                    if (hasPages)                             meta.setPages(pages);
+                    book.setItemMeta(meta);
 
-                    if (plugin instanceof BookShelfEditor bse)
-                        bse.broadcastPlayerBookUpdate(playerName, online.getUniqueId().toString());
+                    /* ---------- give it to the player ---------- */
+                    inv.setItem(slot, book);
+                    online.updateInventory();   // force client sync (safe no-op on 1.17+)
+
+                    /* ---------- optional broadcast ---------- */
+                    if (plugin instanceof BookShelfEditor bse) {
+                        bse.broadcastPlayerBookUpdate(
+                                playerName, online.getUniqueId().toString());
+                    }
 
                     future.complete(null);
-                } catch (Exception ex) { future.completeExceptionally(ex); }
+
+                } catch (Exception ex) {
+                    future.completeExceptionally(ex);
+                }
             });
             return future;
         }
@@ -804,7 +828,7 @@ public class PlayerDataManager {
                                 ? playerData.getCompoundList("EnderItems")
                                 : playerData.getCompoundList("Inventory");
 
-                // locate first empty slot index 0–40
+                // locate first empty slot index 0â€“40
                 boolean[] used = new boolean[41];
                 for (ReadWriteNBT tag : inv) used[tag.getByte("Slot")] = true;
                 int slot = -1;
