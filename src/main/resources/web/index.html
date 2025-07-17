@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <title>Bookshelf Editor</title>
     <style>
-        body { font-family: sans-serif; background-color: #2b2b2b; color: #dcdcdc; display: flex; gap: 20px; padding: 20px; margin: 0; }
+        body { font-family: "Minecraft Seven", sans-serif; background-color: #2b2b2b; color: #dcdcdc; display: flex; gap: 20px; padding: 20px; margin: 0; }
         .panel { background-color: #3c3f41; border: 1px solid #555; border-radius: 8px; padding: 15px; box-sizing: border-box; display: flex; flex-direction: column; }
         #main-panel { flex: 1; min-width: 350px; }
         #detail-panel { flex: 2; }
@@ -90,7 +90,7 @@
         .lock-btn.locked:hover {
             background-color: #5632a5;
         }
-        /* green â€œ+ Add Bookâ€ button */
+        /* green + Add Book button */
         .btn-success {
             background-color: #28a745;
             border: 1px solid #28a745;
@@ -103,7 +103,7 @@
         .btn-success:hover {
             background-color: #218838;
         }
-        /* blue â†º Reorder button */
+        /* blue ▶ Reorder button */
         .reorder-btn {
             background-color: #17a2b8;   /* teal-blue */
             border: 1px solid #17a2b8;
@@ -135,6 +135,19 @@
         .format-toolbar{display:flex; flex-wrap:wrap; gap:6px;}
         .format-toolbar select,
         .format-toolbar button{padding:4px 6px; cursor:pointer; font-size:13px;}
+        @font-face {
+            font-family: "Minecraft Seven";
+            src: url("font/Minecraft-Seven_v2.woff2") format("woff2");
+            font-weight: normal;
+            font-style: normal;
+        }
+        .editor-window,
+        #editor-page,
+        .book-display {
+            font-family: "Minecraft Seven", monospace;
+            font-size: 20px;          /* new – larger glyphs */
+        }
+
 
 
 
@@ -193,16 +206,16 @@
 <div id="detail-panel" class="panel">
     <h2 id="detail-header">Select an item to view details</h2>
     <!-- green + button for bookshelves -->
-    <button id="add-book-btn" class="btn-success" style="display:none;">ï¼‹ Add Book</button>
+    <button id="add-book-btn" class="btn-success" style="display:none;">＋‹ Add Book</button>
 
     <!-- green + button shown when a player is selected -->
-    <button id="add-player-book-btn" class="btn-success" style="display:none;">ï¼‹ Add Book</button>
+    <button id="add-player-book-btn" class="btn-success" style="display:none;">＋ Add Book</button>
 
     <ul id="book-list"></ul>
     <!-- â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ BOOK EDITOR OVERLAY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
     <div id="book-editor-overlay" class="editor-overlay" style="display:none">
         <div class="editor-window">
-            <button id="editor-close" class="editor-close">Ã—</button>
+            <button id="editor-close" class="editor-close">×</button>
             <h3 id="editor-header">Edit Book</h3>
 
             <label>Title:
@@ -215,9 +228,9 @@
 
             <!-- page navigation -->
             <div class="page-controls">
-                <button id="prev-page">Â«</button>
+                <button id="prev-page">«</button>
                 <span id="page-indicator">Page 1 / 1</span>
-                <button id="next-page">Â»</button>
+                <button id="next-page">»</button>
             </div>
 
             <!-- page editor -->
@@ -226,31 +239,31 @@
             <!-- Minecraft formatting toolbar -->
             <div id="format-toolbar" class="format-toolbar">
                 <select id="color-picker">
-                    <option value="">Color â€¦</option>
-                    <option value="Â§0">Black (Â§0)</option>
-                    <option value="Â§1">Dark Blue (Â§1)</option>
-                    <option value="Â§2">Dark Green (Â§2)</option>
-                    <option value="Â§3">Dark Aqua (Â§3)</option>
-                    <option value="Â§4">Dark Red (Â§4)</option>
-                    <option value="Â§5">Dark Purple (Â§5)</option>
-                    <option value="Â§6">Gold (Â§6)</option>
-                    <option value="Â§7">Gray (Â§7)</option>
-                    <option value="Â§8">Dark Gray (Â§8)</option>
-                    <option value="Â§9">Blue (Â§9)</option>
-                    <option value="Â§a">Green (Â§a)</option>
-                    <option value="Â§b">Aqua (Â§b)</option>
-                    <option value="Â§c">Red (Â§c)</option>
-                    <option value="Â§d">Light Purple (Â§d)</option>
-                    <option value="Â§e">Yellow (Â§e)</option>
-                    <option value="Â§f">White (Â§f)</option>
+                    <option value="">Color –</option>
+                    <option value="§0">Black (§0)</option>
+                    <option value="§1">Dark Blue (§1)</option>
+                    <option value="§2">Dark Green (§2)</option>
+                    <option value="§3">Dark Aqua (§3)</option>
+                    <option value="§4">Dark Red (§4)</option>
+                    <option value="§5">Dark Purple (§5)</option>
+                    <option value="§6">Gold (§6)</option>
+                    <option value="§7">Gray (§7)</option>
+                    <option value="§8">Dark Gray (§8)</option>
+                    <option value="§9">Blue (§9)</option>
+                    <option value="§a">Green (§a)</option>
+                    <option value="§b">Aqua (§b)</option>
+                    <option value="§c">Red (§c)</option>
+                    <option value="§d">Light Purple (§d)</option>
+                    <option value="§e">Yellow (§e)</option>
+                    <option value="§f">White (§f)</option>
                 </select>
 
-                <button data-code="Â§l">Bold</button>
-                <button data-code="Â§o">Italic</button>
-                <button data-code="Â§n">Underline</button>
-                <button data-code="Â§m">Strike</button>
-                <button data-code="Â§k">Obfusc.</button>
-                <button data-code="Â§r">Reset</button>
+                <button data-code="§l">Bold</button>
+                <button data-code="§o">Italic</button>
+                <button data-code="§n">Underline</button>
+                <button data-code="§m">Strike</button>
+                <button data-code="§k">Obfusc.</button>
+                <button data-code="§r">Reset</button>
             </div>
 
             <div class="edit-form-actions">
@@ -490,7 +503,7 @@
             `<td>${shelf.x}</td>` +
             `<td>${shelf.y}</td>` +
             `<td>${shelf.z}</td>` +
-            `<td><button class="reorder-btn">â†º Reorder</button></td>`;
+            `<td><button class="reorder-btn">▶ Reorder</button></td>`;
 
         // make row selectable
         row.addEventListener('click', () => handleBookshelfRowClick(row));
@@ -532,7 +545,7 @@
     async function openReorderDialog(loc) {
         const answer = prompt(
             'Enter the new order for slots 0-5, comma-separated.\n' +
-            'Example â€œ5,4,3,2,1,0â€ reverses the shelf.',
+            'Example –"5,4,3,2,1,0" reverses the shelf.',
             ''
         );
         if (answer === null) return;                       // user cancelled
@@ -542,7 +555,7 @@
             parts.every(n => n >= 0 && n <= 5) &&
             new Set(parts).size === 6;
 
-        if (!isValid) { alert('Invalid order â€“ must be six distinct numbers 0-5.'); return; }
+        if (!isValid) { alert('Invalid order – must be six distinct numbers 0-5.'); return; }
 
         try {
             await postJson('/api/bookshelf/reorder', {
@@ -609,7 +622,7 @@
     // *** NEW/MODIFIED BOOK DISPLAY AND EDITING LOGIC ***
 
     function displayBooks(books, location = null) {
-        // ----- calculate empty slots (0â€“5) -----
+        // ----- calculate empty slots (0–5) -----
         const used = books.map(b => b.slot);          // slots that have a book
         currentEmptyShelfSlots = [];
         for (let i = 0; i < 6; i++) {
@@ -663,7 +676,7 @@
                 // Delete button
                 const deleteButton = document.createElement('button');
                 deleteButton.className = 'delete-btn';
-                deleteButton.textContent = 'ðŸ—‘ï¸';
+                deleteButton.textContent = '🗑️';
                 deleteButton.addEventListener('click', () => handleDelete(book.slot, location, bookType, li));
                 li.appendChild(deleteButton);
 
@@ -672,7 +685,7 @@
                 const lockButton = document.createElement('button');
                 lockButton.className = 'lock-btn';
                 const isLocked = book.type === 'WRITTEN_BOOK' || book.type === 'minecraft:written_book';
-                lockButton.textContent = isLocked ? 'ðŸ”“ Unlock' : 'ðŸ”’ Lock';
+                lockButton.textContent = isLocked ? '🔓 Unlock' : '🔒 Lock';
                 if (isLocked) lockButton.classList.add('locked');
                 lockButton.addEventListener('click', () => handleLockUnlock(book.slot, location, bookType, li, isLocked));
                 li.appendChild(lockButton);
@@ -913,7 +926,7 @@
         return `${days}d ago`;
     }
 
-    /* ---------- â€œ+ Add Bookâ€ for a bookshelf ---------- */
+    /* ---------- + Add Book for a bookshelf ---------- */
     document.getElementById('add-book-btn').addEventListener('click', async () => {
         if (!currentSelectedRow || !currentSelectedRow.dataset.world) return;   // no shelf selected
 
@@ -940,7 +953,7 @@
         /* ---------- optional metadata ---------- */
         const title  = prompt('Title (optional):', '')        ?? '';
         const author = prompt('Author (optional):', '')       ?? '';
-        const pagesRaw = prompt('Pages â€“ put \\n between pages', '') ?? '';
+        const pagesRaw = prompt('Pages – put \\n between pages', '') ?? '';
         const pages  = pagesRaw.split('\\n').filter(p => p.trim() !== '');
 
         /* ---------- send request ---------- */
@@ -959,7 +972,7 @@
     });
 
 
-    /* ---------- â€œ+ Add Bookâ€ for a player inventory ---------- */
+    /* ---------- + Add Book for a player inventory ---------- */
     document.getElementById('add-player-book-btn').addEventListener('click', async () => {
         if (!currentSelectedRow || !currentSelectedRow.dataset.playerName) return; // no player selected
         const playerName    = currentSelectedRow.dataset.playerName;
@@ -982,7 +995,7 @@
     const LINE_PX   = 114;          // max width of one rendered line
     const MAX_LINES = 14;           // lines visible on one page
 
-    /* advance widths from the wikiâ€™s â€œFontâ€ table â€“ Java 1.21.4 */
+    /* advance widths from the wikis Font table – Java 1.21.4 */
     const MC_ADV = {
         " ":4,"!":2,'"':4,"#":6,"$":6,"%":6,"&":6,"'":2,"(":4,")":4,
         "*":4,"+":6,",":2,"-":6,".":2,"/":6,
@@ -993,10 +1006,10 @@
         "[":4,"\\":6,"]":4,"^":6,"_":6,"`":3,
         "a":6,"b":6,"c":6,"d":6,"e":6,"f":5,"g":6,"h":6,"i":2,"j":6,"k":5,"l":3,"m":6,"n":6,"o":6,"p":6,"q":6,
         "r":6,"s":6,"t":4,"u":6,"v":6,"w":6,"x":6,"y":6,"z":6,
-        "{":4,"|":2,"}":4,"~":7,"Â§":0,"\n":0
+        "{":4,"|":2,"}":4,"~":7,"§":0,"\n":0
     };
 
-    /* width of a glyph â€“ bold adds +1 px except on space */
+    /* width of a glyph – bold adds +1 px except on space */
     function glyphPx(ch, bold){              // â† inclusive of tracking
         const base = MC_ADV[ch] ?? 6;          // unknown glyphs = 6 px
         return base + (bold && ch!==" " ? 1 : 0);
@@ -1010,8 +1023,8 @@
         for(let i=0;i<text.length;i++){
             let c = text[i];
 
-            /* Â§ formatting codes â€“ zero width, may toggle bold */
-            if(c==="Â§" && i+1<text.length){
+            /* § formatting codes – zero width, may toggle bold */
+            if(c==="§" && i+1<text.length){
                 const code = text[i+1].toLowerCase();
                 if(code==="l") bold = true;                       // bold on
                 else if(code==="r" || /[0-9a-fo]/.test(code)) bold = false;
@@ -1088,11 +1101,11 @@
         /* live counter (optional) */
         const left = MAX_LINES - pageLines(box.value);
         editor.pageLbl.textContent =
-            `Page ${editor.state.idx+1} â€“ ${left} lines left`;
+            `Page ${editor.state.idx+1} – ${left} lines left`;
     }
     editor.pageBox.addEventListener('input', enforceLimit);
 
-    /* helper â€“ load current page into textarea */
+    /* helper – load current page into textarea */
     function showCurrentPage(){
         const {pages, idx} = editor.state;
         if(pages.length===0) pages.push('');
