@@ -147,6 +147,15 @@
             font-family: "Minecraft Seven", monospace;
             font-size: 20px;          /* new – larger glyphs */
         }
+        #editor-preview {
+            width: 114px;
+            height: 280px;              /* 14 lines at 20px each */
+            border: 1px solid #555;
+            padding: 4px;
+            background: #2b2b2b;
+            white-space: normal;
+            overflow-wrap: normal;
+        }
 
 
 
@@ -235,6 +244,7 @@
 
             <!-- page editor -->
             <textarea id="editor-page" rows="10"></textarea>
+            <pre id="editor-preview" class="book-display"></pre>
 
             <!-- Minecraft formatting toolbar -->
             <div id="format-toolbar" class="format-toolbar">
@@ -1009,6 +1019,11 @@
         "{":4,"|":2,"}":4,"~":7,"§":0,"\n":0
     };
 
+    const MC_COL = {
+        '0':'#000000','1':'#0000aa','2':'#00aa00','3':'#00aaaa','4':'#aa0000','5':'#aa00aa','6':'#ffaa00','7':'#aaaaaa',
+        '8':'#555555','9':'#5555ff','a':'#55ff55','b':'#55ffff','c':'#ff5555','d':'#ff55ff','e':'#ffff55','f':'#ffffff'
+    };
+
     /* width of a glyph – bold adds +1 px except on space */
     function glyphPx(ch, bold){              // â† inclusive of tracking
         const base = MC_ADV[ch] ?? 6;          // unknown glyphs = 6 px
@@ -1063,6 +1078,7 @@
         prevBtn : document.getElementById('prev-page'),
         nextBtn : document.getElementById('next-page'),
         saveBtn : document.getElementById('editor-save'),
+        preview : document.getElementById('editor-preview'),
         colorPick: document.getElementById('color-picker'),
         toolbar : document.getElementById('format-toolbar'),
         state   : {}      // slot, pages[], idx, location, type
@@ -1102,8 +1118,93 @@
         const left = MAX_LINES - pageLines(box.value);
         editor.pageLbl.textContent =
             `Page ${editor.state.idx+1} – ${left} lines left`;
+        updatePreview();
     }
     editor.pageBox.addEventListener('input', enforceLimit);
+
+    function parseTokens(text){
+        const def = {color:'#ffffff', bold:false, italic:false, underline:false, strike:false};
+        const style = {...def};
+        const t=[];
+        for(let i=0;i<text.length;i++){
+            const ch=text[i];
+            if(ch==='§' && i+1<text.length){
+                const code=text[i+1].toLowerCase();
+                if(MC_COL[code]){ style.color=MC_COL[code]; style.bold=style.italic=style.underline=style.strike=false; }
+                else if(code==='l') style.bold=true;
+                else if(code==='o') style.italic=true;
+                else if(code==='n') style.underline=true;
+                else if(code==='m') style.strike=true;
+                else if(code==='r') Object.assign(style, def);
+                i++; continue;
+            }
+            t.push({ch, style:{...style}});
+        }
+        return t;
+    }
+
+    function tokensWidth(arr){
+        let w=0; arr.forEach(t=>{ if(t.ch!=="\n") w+=glyphPx(t.ch,t.style.bold); }); return w; }
+
+    function wrapTokens(tokens){
+        const lines=[[]];
+        let px=0, lastSpace=-1;
+        for(let i=0;i<tokens.length;i++){
+            const t=tokens[i];
+            if(t.ch==='\n'){ lines.push([]); px=0; lastSpace=-1; continue; }
+            const w=glyphPx(t.ch,t.style.bold);
+            if(px+w>LINE_PX){
+                if(lastSpace>=0){
+                    const move=lines[lines.length-1].splice(lastSpace+1);
+                    move.push(t);
+                    lines.push(move);
+                    px=tokensWidth(move);
+                    lastSpace=-1;
+                }else{
+                    lines.push([t]);
+                    px=w;
+                }
+            }else{
+                lines[lines.length-1].push(t);
+                px+=w;
+            }
+            if(t.ch===' ') lastSpace=lines[lines.length-1].length-1;
+        }
+        return lines;
+    }
+
+    function styleEq(a,b){
+        return a.color===b.color && a.bold===b.bold && a.italic===b.italic && a.underline===b.underline && a.strike===b.strike;
+    }
+    function styleStr(s){
+        let st=`color:${s.color};`;
+        if(s.bold) st+='font-weight:bold;';
+        if(s.italic) st+='font-style:italic;';
+        const deco=[]; if(s.underline) deco.push('underline'); if(s.strike) deco.push('line-through');
+        if(deco.length) st+=`text-decoration:${deco.join(' ')};`;
+        return st;
+    }
+
+    function renderLines(lines){
+        let html='';
+        lines.forEach((line,idx)=>{
+            let cur=null;
+            line.forEach(tok=>{
+                if(!cur || !styleEq(cur,tok.style)){ if(cur) html+='</span>'; html+=`<span style="${styleStr(tok.style)}">`; cur=tok.style; }
+                const c=tok.ch;
+                if(c===' ') html+='&nbsp;'; else html+=c.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+            });
+            if(cur) html+='</span>';
+            if(idx<lines.length-1) html+='<br>';
+        });
+        return html;
+    }
+
+    function updatePreview(){
+        const tokens=parseTokens(editor.pageBox.value);
+        const lines=wrapTokens(tokens);
+        editor.preview.innerHTML=renderLines(lines);
+    }
 
     /* helper – load current page into textarea */
     function showCurrentPage(){
@@ -1111,6 +1212,7 @@
         if(pages.length===0) pages.push('');
         editor.pageBox.value = pages[idx];
         editor.pageLbl.textContent = `Page ${idx+1} / ${pages.length}`;
+        updatePreview();
     }
 
     /* page navigation */
